@@ -1,0 +1,23 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from clinically_anchored_api.api import health
+from clinically_anchored_api.core.config import get_settings
+
+settings = get_settings()
+
+app = FastAPI(
+    title="Clinically Anchored API",
+    description="Backend service: check-in intake, red-flag rules, summary generation, audit log.",
+    version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router)

@@ -1,0 +1,30 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Env files -- never commit real secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# OS / editor
+.DS_Store
+.vscode/
+*.swp
+
+# Supabase CLI local state
+supabase/.temp/
