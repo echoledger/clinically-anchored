@@ -34,7 +34,7 @@ def _serializer(scope: Scope) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.checkin_link_secret, salt=f"link:{scope}")
 
 
-def _max_age(scope: Scope) -> int:
+def link_max_age(scope: Scope) -> int:
     settings = get_settings()
     if scope == "messages":
         return settings.message_link_max_age_seconds
@@ -52,7 +52,7 @@ def create_checkin_token(*, clinic_id: str, patient_id: str) -> str:
 def verify_link_token(token: str, scope: Scope) -> dict[str, str]:
     """Returns {"clinic_id": ..., "patient_id": ...} or raises InvalidCheckinToken."""
     try:
-        data = _serializer(scope).loads(token, max_age=_max_age(scope))
+        data = _serializer(scope).loads(token, max_age=link_max_age(scope))
     except SignatureExpired as exc:
         raise InvalidCheckinToken("This link has expired.") from exc
     except BadSignature as exc:
