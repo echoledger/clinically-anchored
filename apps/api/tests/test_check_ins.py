@@ -2,6 +2,7 @@
 evaluation, and the write path -- with the Supabase client replaced by a
 fake so these tests don't touch a real network or database."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from clinically_anchored_api.api import check_ins as check_ins_module
@@ -10,6 +11,13 @@ from clinically_anchored_api.main import app
 
 CLINIC_ID = "11111111-1111-1111-1111-111111111111"
 PATIENT_ID = "22222222-2222-2222-2222-222222222222"
+
+
+@pytest.fixture(autouse=True)
+def audit_calls(monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(check_ins_module, "record_event", lambda _db, **kw: calls.append(kw))
+    return calls
 
 
 class _FakeQuery:
@@ -69,7 +77,7 @@ def _client_with_fake_db(fake: _FakeSupabase) -> TestClient:
     return client
 
 
-def test_submit_check_in_writes_row_and_flags_red_flag():
+def test_submit_check_in_writes_row_and_flags_red_flag(audit_calls):
     fake = _FakeSupabase()
     client = _client_with_fake_db(fake)
     try:
@@ -87,6 +95,10 @@ def test_submit_check_in_writes_row_and_flags_red_flag():
         assert body["patient_id"] == PATIENT_ID
         assert body["is_red_flag"] is True
         assert len(fake.table.inserted_rows) == 1
+        assert len(audit_calls) == 1
+        assert audit_calls[0]["event_type"] == "check_in.submitted"
+        assert audit_calls[0]["clinic_id"] == CLINIC_ID
+        assert audit_calls[0]["metadata"]["actor"] == {"type": "patient", "id": PATIENT_ID}
     finally:
         check_ins_module.get_supabase = client._fake_db_restore
 

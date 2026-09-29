@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     checkin_link_secret: str = secrets.token_urlsafe(32)
     checkin_link_max_age_seconds: int = 60 * 60 * 24 * 14  # 14 days
 
+    # Ed25519 signing key for the audit log: base64 of the 32-byte private seed.
+    # Must be stable -- a regenerated key orphans every row already signed.
+    # Generate with `python -m clinically_anchored_api.core.audit`. Deployed
+    # environments set it via Railway; move to a KMS before real patient data.
+    audit_signing_key: str = ""
+    audit_key_id: str = "dev-1"
+
     # CORS: the web app's origin(s), comma-separated in the env var
     allowed_origins: str = "http://localhost:3000"
 

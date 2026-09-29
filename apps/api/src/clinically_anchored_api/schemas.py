@@ -61,3 +61,12 @@ class MessageOut(BaseModel):
     body: str
     read_at: str | None
     created_at: str
+
+
+class AuditVerifyOut(BaseModel):
+    ok: bool
+    count: int
+    head_hash: str | None
+    broken_at: int | None
+    reason: str | None
+    public_key: str  # base64 Ed25519 public key the chain was checked against

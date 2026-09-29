@@ -1,9 +1,14 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
+from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.rules import evaluate_red_flags
 from clinically_anchored_api.core.security import InvalidCheckinToken, verify_checkin_token
 from clinically_anchored_api.schemas import CheckInContext, CheckInCreate, CheckInOut, Procedure
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["check-ins"])
 
@@ -81,4 +86,30 @@ def submit_check_in(
     if not result.data:
         raise HTTPException(status_code=500, detail="Check-in was not saved.")
 
-    return CheckInOut(**result.data[0])
+    row = result.data[0]
+    try:
+        record_event(
+            supabase,
+            clinic_id=clinic_id,
+            event_type="check_in.submitted",
+            payload={
+                "check_in_id": row["id"],
+                "patient_id": patient_id,
+                "procedure_id": row["procedure_id"],
+                "post_op_day": row["post_op_day"],
+                "answers": row["answers"],
+                "is_red_flag": row["is_red_flag"],
+            },
+            metadata={
+                "ref_type": "check_in",
+                "ref_id": row["id"],
+                "actor": {"type": "patient", "id": patient_id},
+            },
+        )
+    except AuditWriteError as exc:
+        # The check-in row is already written; surface the gap loudly rather
+        # than pretend the trail is complete.
+        logger.error("check-in %s saved but audit write failed: %s", row["id"], exc)
+        raise HTTPException(status_code=500, detail="Check-in saved but not audited.") from exc
+
+    return CheckInOut(**row)

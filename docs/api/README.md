@@ -35,10 +35,22 @@ patient's link token), not the database.
 
 ## Current state
 
-Scaffolded, not built out: `main.py`, a `/health` endpoint, `core/config.py` for
-settings. No check-in endpoints, no rule engine, no summary generation, no audit log
-writer yet. Tests and lint (`pytest`, `ruff`) are wired into CI and currently pass on
-the scaffold alone.
+Built (branch `feature/check-in-intake`, not yet merged):
+
+- Check-in intake: `POST /check-ins`, `GET /check-ins/context`, signed/expiring link
+  tokens (`core/security.py`), dev-only `POST /dev/check-in-links`.
+- Red-flag rules (`core/rules.py`) -- **placeholder logic**, not Sarah's real list.
+- Clinician auth (`core/auth.py`): Supabase JWT + `clinic_members` check per clinic.
+- Clinician-side messages: list thread, send, mark read.
+- Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
+  Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
+  `GET /clinics/{id}/audit-log/verify`. Check-in submit and message send are audited.
+  Known gap: the business row and its audit row are separate writes, so a crash
+  between them leaves an unaudited row (the request returns 500 and logs it).
+  Not audited yet: mark-read.
+
+Not built: patient-side messages, rolling summaries, consent/AI-draft audit events.
+Tests and lint (`pytest`, `ruff`) run in CI.
 
 ## Hard constraints (not negotiable without a product conversation first)
 
@@ -60,10 +72,10 @@ the scaffold alone.
 
 ## Near-term backlog (roughly in order)
 
-1. Check-in intake endpoint + link-token validation.
-2. Red-flag rule engine (start with a hardcoded rule set; make it clinician-editable
+1. ~~Check-in intake endpoint + link-token validation.~~ Done.
+2. ~~Red-flag rule engine~~ Placeholder done; needs Sarah's list (start with a hardcoded rule set; make it clinician-editable
    later, once there's a clinician using it).
-3. Message send/receive endpoints (clinician side first — patient side needs the
+3. Message send/receive endpoints -- clinician side done; patient side next (link-token model now exists — patient side needs the
    link-token auth model settled).
 4. Rolling summary generation, with per-line provenance links back to source messages.
 5. Audit log writer — wire every write above through it from the start rather than

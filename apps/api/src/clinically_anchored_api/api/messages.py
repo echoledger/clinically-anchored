@@ -6,13 +6,17 @@ patient/message id is re-checked against that clinic: the service role
 bypasses RLS, so a clinic_id in the URL is only trustworthy once we've
 confirmed the rows we touch actually belong to it."""
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.schemas import MessageCreate, MessageOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["messages"])
 
@@ -57,7 +61,7 @@ def send_message(
     clinic_id: str,
     patient_id: str,
     body: MessageCreate,
-    _member: ClinicMember = Depends(require_clinic_member),
+    member: ClinicMember = Depends(require_clinic_member),
 ) -> MessageOut:
     """Clinician/delegate -> patient. Always stored with sender='clinician';
     the caller can't choose the sender. Nothing here is AI-drafted, so
@@ -78,7 +82,28 @@ def send_message(
     )
     if not result.data:
         raise HTTPException(status_code=500, detail="Message was not saved.")
-    return MessageOut(**result.data[0])
+    row = result.data[0]
+    try:
+        record_event(
+            supabase,
+            clinic_id=clinic_id,
+            event_type="message.sent",
+            payload={
+                "message_id": row["id"],
+                "patient_id": patient_id,
+                "sender": "clinician",
+                "body": row["body"],
+            },
+            metadata={
+                "ref_type": "message",
+                "ref_id": row["id"],
+                "actor": {"type": "member", "id": member.user_id, "role": member.role},
+            },
+        )
+    except AuditWriteError as exc:
+        logger.error("message %s saved but audit write failed: %s", row["id"], exc)
+        raise HTTPException(status_code=500, detail="Message saved but not audited.") from exc
+    return MessageOut(**row)
 
 
 @router.post("/clinics/{clinic_id}/messages/{message_id}/read", response_model=MessageOut)

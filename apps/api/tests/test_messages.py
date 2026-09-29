@@ -90,7 +90,14 @@ class _FakeSupabase:
 
 
 @pytest.fixture
-def fake(monkeypatch):
+def audit_calls(monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(messages_module, "record_event", lambda _db, **kw: calls.append(kw))
+    return calls
+
+
+@pytest.fixture
+def fake(monkeypatch, audit_calls):
     fake = _FakeSupabase()
     monkeypatch.setattr(messages_module, "get_supabase", lambda: fake)
     monkeypatch.setattr(auth_module, "get_supabase", lambda: fake)
@@ -136,6 +143,16 @@ def test_send_then_list_thread(client, fake):
 
     r = client.get(_thread(CLINIC_A, PATIENT_A), headers=AUTH)
     assert [m["body"] for m in r.json()] == ["How is the pain?"]
+
+
+def test_send_writes_audit_event_without_message_text_in_metadata(client, audit_calls):
+    client.post(_thread(CLINIC_A, PATIENT_A), headers=AUTH, json={"body": "secret words"})
+    assert len(audit_calls) == 1
+    call = audit_calls[0]
+    assert call["event_type"] == "message.sent"
+    assert call["payload"]["body"] == "secret words"  # hashed by record_event, never stored
+    assert "secret words" not in str(call["metadata"])
+    assert call["metadata"]["actor"] == {"type": "member", "id": USER, "role": "clinician"}
 
 
 def test_send_ignores_client_supplied_sender(client, fake):

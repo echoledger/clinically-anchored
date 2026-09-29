@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from clinically_anchored_api.api import check_ins, health, messages, procedures
+from clinically_anchored_api.api import audit, check_ins, health, messages, procedures
 from clinically_anchored_api.core.config import get_settings
 
 settings = get_settings()
@@ -21,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(audit.router)
 app.include_router(procedures.router)
 app.include_router(check_ins.router)
 app.include_router(messages.router)
