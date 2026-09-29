@@ -45,3 +45,19 @@ class CheckInContext(BaseModel):
 
     clinic_id: str
     procedures: list[Procedure]
+
+
+class MessageCreate(BaseModel):
+    # Messages are free-form text from both sides (decision 5); the cap is a
+    # sanity limit, not a product rule.
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class MessageOut(BaseModel):
+    id: str
+    clinic_id: str
+    patient_id: str
+    sender: str
+    body: str
+    read_at: str | None
+    created_at: str
