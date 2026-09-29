@@ -38,6 +38,9 @@ Migration `00000000000003_audit_log_chain.sql` adds `row_hash`, `signature`, `ke
 `audit_log`, a unique index that prevents chain forks, and `append_audit_event()` (per-clinic
 advisory lock; service role only). The api computes hashes/signatures; the DB serialises appends.
 
+Migration `00000000000004_check_in_review.sql` adds `check_ins.reviewed_at` / `reviewed_by`
+(clinician review state that drives the queue) and partial indexes for the queue's reads.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*
