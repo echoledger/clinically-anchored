@@ -73,7 +73,8 @@ class AuditVerifyOut(BaseModel):
     head_hash: str | None
     broken_at: int | None
     reason: str | None
-    public_key: str  # base64 Ed25519 public key the chain was checked against
+    key_ids: list[str]  # signing keys that appear in this clinic's chain
+    public_key: str  # base64 Ed25519 public key of the currently active signing key
 
 
 class CheckInDetail(BaseModel):

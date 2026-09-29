@@ -98,6 +98,22 @@ def public_key_b64() -> str:
     return base64.b64encode(raw).decode()
 
 
+def trusted_public_keys() -> dict[str, Ed25519PublicKey]:
+    """key_id -> public key for verification: the configured extras plus the
+    current signing key (which wins if the ids collide)."""
+    settings = get_settings()
+    keys: dict[str, Ed25519PublicKey] = {}
+    if settings.audit_public_keys:
+        try:
+            extra = json.loads(settings.audit_public_keys)
+            for key_id, b64 in extra.items():
+                keys[key_id] = Ed25519PublicKey.from_public_bytes(base64.b64decode(b64))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise AuditWriteError(f"AUDIT_PUBLIC_KEYS is malformed: {exc}") from exc
+    keys[settings.audit_key_id] = _private_key().public_key()
+    return keys
+
+
 def record_event(
     supabase,
     *,
@@ -163,8 +179,9 @@ def record_event(
     raise AuditWriteError("audit append kept conflicting; giving up")
 
 
-def verify_chain(rows: list[dict], public_key: Ed25519PublicKey) -> dict:
-    """Check rows (one clinic, oldest first). Returns
+def verify_chain(rows: list[dict], keys: dict[str, Ed25519PublicKey]) -> dict:
+    """Check rows (one clinic, oldest first), verifying each signature with the
+    public key named by the row's key_id. Returns
     {"ok": bool, "count": n, "head_hash": ..., "broken_at": row id or None,
     "reason": ...}."""
     prev: str | None = None
@@ -181,12 +198,22 @@ def verify_chain(rows: list[dict], public_key: Ed25519PublicKey) -> dict:
             return _broken(rows, row, "chain link does not match previous row")
         if row["row_hash"] != expected:
             return _broken(rows, row, "row contents do not match row_hash")
+        public_key = keys.get(row["key_id"])
+        if public_key is None:
+            return _broken(rows, row, f"unknown signing key {row['key_id']!r}")
         try:
             public_key.verify(base64.b64decode(row["signature"]), bytes.fromhex(expected))
         except Exception:
             return _broken(rows, row, "signature invalid")
         prev = row["row_hash"]
-    return {"ok": True, "count": len(rows), "head_hash": prev, "broken_at": None, "reason": None}
+    return {
+        "ok": True,
+        "count": len(rows),
+        "head_hash": prev,
+        "broken_at": None,
+        "reason": None,
+        "key_ids": sorted({r["key_id"] for r in rows}),
+    }
 
 
 def _broken(rows: list[dict], row: dict, reason: str) -> dict:
@@ -196,6 +223,7 @@ def _broken(rows: list[dict], row: dict, reason: str) -> dict:
         "head_hash": None,
         "broken_at": row["id"],
         "reason": reason,
+        "key_ids": sorted({r["key_id"] for r in rows}),
     }
 
 

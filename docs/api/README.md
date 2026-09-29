@@ -56,7 +56,8 @@ Built (branch `feature/check-in-intake`, not yet merged):
   `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` are set.
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
-  `GET /clinics/{id}/audit-log/verify`. Check-in submit and message send are audited.
+  `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
+  `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Check-in submit and message send are audited.
   Known gap: the business row and its audit row are separate writes, so a crash
   between them leaves an unaudited row (the request returns 500 and logs it).
   Not audited yet: mark-read.
