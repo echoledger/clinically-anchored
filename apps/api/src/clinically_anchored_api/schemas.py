@@ -74,3 +74,33 @@ class AuditVerifyOut(BaseModel):
     broken_at: int | None
     reason: str | None
     public_key: str  # base64 Ed25519 public key the chain was checked against
+
+
+class CheckInDetail(BaseModel):
+    """A check-in as a clinician sees it: answers plus resolved names."""
+
+    id: str
+    patient_id: str
+    patient_name: str | None
+    procedure_id: str | None
+    procedure_name: str | None
+    post_op_day: int | None
+    answers: dict
+    is_red_flag: bool
+    created_at: str
+    reviewed_at: str | None
+    reviewed_by: str | None
+
+
+class QueueItem(BaseModel):
+    """One patient who needs attention: unreviewed check-ins and/or unread
+    patient messages. Ordered by the endpoint, unreviewed red flags first."""
+
+    patient_id: str
+    patient_name: str | None
+    has_red_flag: bool
+    unreviewed_check_ins: int
+    unread_messages: int
+    latest_check_in_id: str | None
+    latest_post_op_day: int | None
+    last_activity_at: str

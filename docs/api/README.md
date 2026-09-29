@@ -47,6 +47,13 @@ Built (branch `feature/check-in-intake`, not yet merged):
   `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
   own scope. Still bearer links -- anyone holding a messages link can read the thread until
   it expires -- and there is no rate limiting yet.
+- Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
+  unreviewed check-ins + unread patient messages, unreviewed red flags first),
+  `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
+  `POST /clinics/{id}/check-ins/{id}/review` (idempotent, audited as `check_in.reviewed`).
+  Migration 4 adds `check_ins.reviewed_at/by`. Queue reads cap at 1000 rows per query.
+- Startup guard: outside `ENVIRONMENT=development` the app refuses to start unless
+  `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` are set.
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify`. Check-in submit and message send are audited.
