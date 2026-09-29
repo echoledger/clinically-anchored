@@ -78,12 +78,10 @@ Tests and lint (`pytest`, `ruff`) run in CI.
 1. ~~Check-in intake endpoint + link-token validation.~~ Done.
 2. ~~Red-flag rule engine~~ Placeholder done; needs Sarah's list (start with a hardcoded rule set; make it clinician-editable
    later, once there's a clinician using it).
-3. ~~Message send/receive endpoints~~ Done, both sides (link-token model settled — patient side needs the
-   link-token auth model settled).
+3. ~~Message send/receive endpoints~~ Done, both sides.
 4. Rolling summary generation, with per-line provenance links back to source messages.
-5. Audit log writer — wire every write above through it from the start rather than
-   bolting it on later; retrofitting an audit trail is much more expensive than
-   building with it.
+5. ~~Audit log writer~~ Done for check-ins and messages. Wire every new write through
+   it (summaries, consent, AI-draft approvals) rather than bolting it on later.
 
 ## Reference
 
