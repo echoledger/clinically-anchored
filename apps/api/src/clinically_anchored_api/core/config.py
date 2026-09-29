@@ -1,3 +1,4 @@
+import secrets
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,12 @@ class Settings(BaseSettings):
     # Supabase (ca-central-1 project)
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+
+    # Signs patient check-in link tokens (itsdangerous). Dev default is random
+    # per-process on purpose -- it should never be reused as a real secret;
+    # deployed environments must set a real, stable value via Railway.
+    checkin_link_secret: str = secrets.token_urlsafe(32)
+    checkin_link_max_age_seconds: int = 60 * 60 * 24 * 14  # 14 days
 
     # CORS: the web app's origin(s), comma-separated in the env var
     allowed_origins: str = "http://localhost:3000"
