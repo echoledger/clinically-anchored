@@ -149,3 +149,35 @@ def test_check_in_context_rejects_bad_token():
         assert response.status_code == 401
     finally:
         check_ins_module.get_supabase = client._fake_db_restore
+
+
+def test_submit_check_in_rejects_procedure_from_another_clinic():
+    # Fake returns no rows for the (procedure id, clinic id) lookup.
+    fake = _FakeSupabase(select_rows=[])
+    client = _client_with_fake_db(fake)
+    try:
+        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
+        response = client.post(
+            "/check-ins",
+            params={"token": token},
+            json={"procedure_id": "55555555-5555-5555-5555-555555555555", "answers": {}},
+        )
+        assert response.status_code == 422
+        assert fake.table.inserted_rows == []
+    finally:
+        check_ins_module.get_supabase = client._fake_db_restore
+
+
+def test_submit_check_in_accepts_procedure_in_clinic():
+    fake = _FakeSupabase(select_rows=[{"id": "55555555-5555-5555-5555-555555555555"}])
+    client = _client_with_fake_db(fake)
+    try:
+        token = create_checkin_token(clinic_id=CLINIC_ID, patient_id=PATIENT_ID)
+        response = client.post(
+            "/check-ins",
+            params={"token": token},
+            json={"procedure_id": "55555555-5555-5555-5555-555555555555", "answers": {}},
+        )
+        assert response.status_code == 200
+    finally:
+        check_ins_module.get_supabase = client._fake_db_restore

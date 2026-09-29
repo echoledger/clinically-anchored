@@ -49,6 +49,20 @@ def submit_check_in(
     is_red_flag, _matched_rules = evaluate_red_flags(body.answers)
 
     supabase = get_supabase()
+    if body.procedure_id is not None:
+        # The service role bypasses RLS and check_ins.procedure_id only has a
+        # plain FK, so nothing else stops a token for one clinic from naming
+        # another clinic's procedure.
+        known = (
+            supabase.table("procedures")
+            .select("id")
+            .eq("id", body.procedure_id)
+            .eq("clinic_id", clinic_id)
+            .execute()
+        )
+        if not known.data:
+            raise HTTPException(status_code=422, detail="Unknown procedure for this clinic.")
+
     result = (
         supabase.table("check_ins")
         .insert(
