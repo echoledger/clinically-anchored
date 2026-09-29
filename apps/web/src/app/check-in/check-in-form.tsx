@@ -3,16 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, CheckInContext, getCheckInContext, submitCheckIn } from "@/lib/api";
-
-// Symptom checkboxes below are placeholders (keys match
-// apps/api's core/rules.py PLACEHOLDER_RULES) -- not Sarah's actual
-// red-flag list yet. Replace both together once that list exists.
-const SYMPTOM_OPTIONS: { key: string; label: string }[] = [
-  { key: "fever", label: "Fever or chills" },
-  { key: "heavy_bleeding", label: "Heavy or worsening bleeding" },
-  { key: "severe_pain", label: "Pain that's getting worse, not better" },
-  { key: "wound_opening", label: "The incision has opened or is leaking" },
-];
+import { SYMPTOM_OPTIONS } from "@/lib/symptoms";
 
 type Status = "loading" | "ready" | "submitting" | "submitted" | "error";
 
