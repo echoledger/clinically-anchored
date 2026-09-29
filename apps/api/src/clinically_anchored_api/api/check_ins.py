@@ -1,11 +1,11 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.db import get_supabase
 from clinically_anchored_api.core.rules import evaluate_red_flags
-from clinically_anchored_api.core.security import InvalidCheckinToken, verify_checkin_token
+from clinically_anchored_api.core.security import require_link_token
 from clinically_anchored_api.schemas import CheckInContext, CheckInCreate, CheckInOut, Procedure
 
 logger = logging.getLogger(__name__)
@@ -13,20 +13,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["check-ins"])
 
 
-def _resolve_token(token: str) -> dict[str, str]:
-    try:
-        return verify_checkin_token(token)
-    except InvalidCheckinToken as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-
 @router.get("/check-ins/context", response_model=CheckInContext)
-def check_in_context(
-    token: str = Query(..., description="Signed check-in link token"),
-) -> CheckInContext:
+def check_in_context(claims: dict[str, str] = Depends(require_link_token)) -> CheckInContext:
     """What the check-in page needs to render: the clinic (resolved from the
     token, never exposed in the URL) and its active procedures."""
-    claims = _resolve_token(token)
     clinic_id = claims["clinic_id"]
 
     supabase = get_supabase()
@@ -44,10 +34,8 @@ def check_in_context(
 
 @router.post("/check-ins", response_model=CheckInOut)
 def submit_check_in(
-    body: CheckInCreate,
-    token: str = Query(..., description="Signed check-in link token"),
+    body: CheckInCreate, claims: dict[str, str] = Depends(require_link_token)
 ) -> CheckInOut:
-    claims = _resolve_token(token)
     clinic_id = claims["clinic_id"]
     patient_id = claims["patient_id"]
 

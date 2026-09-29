@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from clinically_anchored_api.api import messages as messages_module
 from clinically_anchored_api.core import auth as auth_module
+from clinically_anchored_api.core.security import create_checkin_token
 from clinically_anchored_api.main import app
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -190,3 +191,57 @@ def test_mark_read_other_clinic_message_is_404(client, fake):
     )
     r = client.post(f"/clinics/{CLINIC_A}/messages/pb/read", headers=AUTH)
     assert r.status_code == 404
+
+
+# --- patient side (link token) ------------------------------------------------
+
+
+def _token(clinic=CLINIC_A, patient=PATIENT_A):
+    return create_checkin_token(clinic_id=clinic, patient_id=patient)
+
+
+def test_patient_endpoints_reject_bad_token(client):
+    assert client.get("/messages", params={"token": "garbage"}).status_code == 401
+    r = client.post("/messages", params={"token": "garbage"}, json={"body": "hi"})
+    assert r.status_code == 401
+
+
+def test_patient_send_is_stored_as_patient_and_audited(client, fake, audit_calls):
+    r = client.post(
+        "/messages",
+        params={"token": _token()},
+        json={"body": "Pain is worse today", "sender": "clinician", "patient_id": PATIENT_B},
+    )
+    assert r.status_code == 200
+    row = fake.tables["messages"][0]
+    # Sender and identity come from the token, not the request body.
+    assert (row["sender"], row["clinic_id"], row["patient_id"]) == ("patient", CLINIC_A, PATIENT_A)
+    assert audit_calls[0]["event_type"] == "message.sent"
+    assert audit_calls[0]["metadata"]["actor"] == {"type": "patient", "id": PATIENT_A}
+    assert audit_calls[0]["payload"]["sender"] == "patient"
+
+
+def test_patient_sees_only_their_own_thread(client, fake):
+    fake.tables["messages"] += [
+        {"id": "1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "clinician",
+         "body": "mine", "read_at": None, "created_at": "2026-01-01T00:00:00Z"},
+        {"id": "2", "clinic_id": CLINIC_B, "patient_id": PATIENT_B, "sender": "clinician",
+         "body": "someone else's", "read_at": None, "created_at": "2026-01-01T00:00:01Z"},
+    ]
+    r = client.get("/messages", params={"token": _token()})
+    assert [m["body"] for m in r.json()] == ["mine"]
+
+
+def test_patient_token_for_unknown_patient_is_404(client):
+    # Validly signed, but the patient is not in that clinic (e.g. deleted).
+    tok = _token(clinic=CLINIC_A, patient=PATIENT_B)
+    assert client.get("/messages", params={"token": tok}).status_code == 404
+    assert client.post("/messages", params={"token": tok}, json={"body": "x"}).status_code == 404
+
+
+def test_patient_message_shows_up_for_clinician_and_can_be_marked_read(client):
+    client.post("/messages", params={"token": _token()}, json={"body": "hello doctor"})
+    thread = client.get(_thread(CLINIC_A, PATIENT_A), headers=AUTH).json()
+    assert [(m["sender"], m["body"]) for m in thread] == [("patient", "hello doctor")]
+    read = client.post(f"/clinics/{CLINIC_A}/messages/{thread[0]['id']}/read", headers=AUTH)
+    assert read.json()["read_at"] is not None

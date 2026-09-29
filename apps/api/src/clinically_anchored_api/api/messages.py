@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
+from clinically_anchored_api.core.security import require_link_token
 from clinically_anchored_api.schemas import MessageCreate, MessageOut
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,40 @@ def _require_patient_in_clinic(supabase, clinic_id: str, patient_id: str) -> Non
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Patient not found.")
+
+
+def _insert_and_audit(
+    supabase, *, clinic_id: str, patient_id: str, sender: str, text: str, actor: dict
+) -> MessageOut:
+    """The one place a message is written: insert, then audit. `sender` is set
+    by the calling route from who authenticated, never from the request body."""
+    result = (
+        supabase.table("messages")
+        .insert(
+            {"clinic_id": clinic_id, "patient_id": patient_id, "sender": sender, "body": text}
+        )
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Message was not saved.")
+    row = result.data[0]
+    try:
+        record_event(
+            supabase,
+            clinic_id=clinic_id,
+            event_type="message.sent",
+            payload={
+                "message_id": row["id"],
+                "patient_id": patient_id,
+                "sender": sender,
+                "body": row["body"],
+            },
+            metadata={"ref_type": "message", "ref_id": row["id"], "actor": actor},
+        )
+    except AuditWriteError as exc:
+        logger.error("message %s saved but audit write failed: %s", row["id"], exc)
+        raise HTTPException(status_code=500, detail="Message saved but not audited.") from exc
+    return MessageOut(**row)
 
 
 @router.get(
@@ -68,42 +103,14 @@ def send_message(
     there's no approval step to record yet."""
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, clinic_id, patient_id)
-    result = (
-        supabase.table("messages")
-        .insert(
-            {
-                "clinic_id": clinic_id,
-                "patient_id": patient_id,
-                "sender": "clinician",
-                "body": body.body,
-            }
-        )
-        .execute()
+    return _insert_and_audit(
+        supabase,
+        clinic_id=clinic_id,
+        patient_id=patient_id,
+        sender="clinician",
+        text=body.body,
+        actor={"type": "member", "id": member.user_id, "role": member.role},
     )
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Message was not saved.")
-    row = result.data[0]
-    try:
-        record_event(
-            supabase,
-            clinic_id=clinic_id,
-            event_type="message.sent",
-            payload={
-                "message_id": row["id"],
-                "patient_id": patient_id,
-                "sender": "clinician",
-                "body": row["body"],
-            },
-            metadata={
-                "ref_type": "message",
-                "ref_id": row["id"],
-                "actor": {"type": "member", "id": member.user_id, "role": member.role},
-            },
-        )
-    except AuditWriteError as exc:
-        logger.error("message %s saved but audit write failed: %s", row["id"], exc)
-        raise HTTPException(status_code=500, detail="Message saved but not audited.") from exc
-    return MessageOut(**row)
 
 
 @router.post("/clinics/{clinic_id}/messages/{message_id}/read", response_model=MessageOut)
@@ -134,3 +141,37 @@ def mark_read(
         .execute()
     )
     return MessageOut(**updated.data[0])
+
+
+# --- Patient side: authenticated by the signed link token, no account. -------
+
+
+@router.get("/messages", response_model=list[MessageOut])
+def patient_list_thread(claims: dict[str, str] = Depends(require_link_token)) -> list[MessageOut]:
+    supabase = get_supabase()
+    _require_patient_in_clinic(supabase, claims["clinic_id"], claims["patient_id"])
+    result = (
+        supabase.table("messages")
+        .select(_COLUMNS)
+        .eq("clinic_id", claims["clinic_id"])
+        .eq("patient_id", claims["patient_id"])
+        .order("created_at")
+        .execute()
+    )
+    return [MessageOut(**row) for row in result.data]
+
+
+@router.post("/messages", response_model=MessageOut)
+def patient_send_message(
+    body: MessageCreate, claims: dict[str, str] = Depends(require_link_token)
+) -> MessageOut:
+    supabase = get_supabase()
+    _require_patient_in_clinic(supabase, claims["clinic_id"], claims["patient_id"])
+    return _insert_and_audit(
+        supabase,
+        clinic_id=claims["clinic_id"],
+        patient_id=claims["patient_id"],
+        sender="patient",
+        text=body.body,
+        actor={"type": "patient", "id": claims["patient_id"]},
+    )

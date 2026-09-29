@@ -12,6 +12,7 @@ delivery flow -- nothing sends these over SMS/email today. See the dev-only
 mint endpoint in api/dev.py for how a token gets created for now.
 """
 
+from fastapi import HTTPException, Query
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from clinically_anchored_api.core.config import get_settings
@@ -43,3 +44,15 @@ def verify_checkin_token(token: str) -> dict[str, str]:
     if "clinic_id" not in data or "patient_id" not in data:
         raise InvalidCheckinToken("This link is not valid.")
     return data
+
+
+def require_link_token(
+    token: str = Query(..., description="Signed patient link token"),
+) -> dict[str, str]:
+    """FastAPI dependency for patient-facing routes: 401 unless the token is
+    valid and unexpired. Clinic and patient come from the token, never from
+    the URL or body."""
+    try:
+        return verify_checkin_token(token)
+    except InvalidCheckinToken as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
