@@ -22,3 +22,15 @@ uv run uvicorn clinically_anchored_api.main:app --reload
 uv run pytest
 uv run ruff check .
 ```
+
+## Deploying (Railway)
+
+- **Root Directory must be `/apps/api`** (Service -> Settings -> Source). Otherwise Railway
+  builds the repo root, detects Node/pnpm from the root `package.json`, and fails with
+  "No start command detected".
+- Start command comes from `Procfile`; `railway.json` pins the builder, the `/health`
+  check and the restart policy.
+- With `ENVIRONMENT` set to anything but `development`, the app refuses to boot unless
+  `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+  are set. Use fresh secrets, not the dev ones, and keep `AUDIT_SIGNING_KEY` stable (change
+  `AUDIT_KEY_ID` if you rotate it).
