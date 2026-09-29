@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # The current key's public half is derived automatically.
     audit_public_keys: str = ""
 
+    # Where patients open their links (the deployed web app). Used to build the
+    # URLs the "issue link" endpoint returns. Development falls back to
+    # http://localhost:3000; elsewhere the endpoint refuses until it's set.
+    web_base_url: str = ""
+
     # CORS: the web app's origin(s), comma-separated in the env var
     allowed_origins: str = "http://localhost:3000"
 

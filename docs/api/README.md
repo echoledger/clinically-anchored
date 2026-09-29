@@ -52,6 +52,11 @@ Built (branch `feature/check-in-intake`, not yet merged):
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
   `POST /clinics/{id}/check-ins/{id}/review` (idempotent, audited as `check_in.reviewed`).
   Migration 4 adds `check_ins.reviewed_at/by`. Queue reads cap at 1000 rows per query.
+- Clinic/patient management for the web app: `GET /me`, `GET`/`POST /clinics/{id}/patients`
+  (audited `patient.created`), and `POST /clinics/{id}/patients/{pid}/links/{checkin|messages}`
+  which returns a copyable URL (audited `link.issued`, token never logged). Link issuance
+  stands in for SMS/email delivery during trials; needs `WEB_BASE_URL` outside development.
+  Patients stay link-only (no patient sign-in) -- decision for the trial; revisit with Sarah.
 - Startup guard: outside `ENVIRONMENT=development` the app refuses to start unless
   `CHECKIN_LINK_SECRET`, `AUDIT_SIGNING_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` are set.
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,

@@ -105,3 +105,34 @@ class QueueItem(BaseModel):
     latest_check_in_id: str | None
     latest_post_op_day: int | None
     last_activity_at: str
+
+
+class ClinicOut(BaseModel):
+    id: str
+    name: str
+    role: str
+
+
+class MeOut(BaseModel):
+    user_id: str
+    email: str | None
+    clinics: list[ClinicOut]
+
+
+class PatientCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    # Phone or email the check-in link is sent to (free text for now).
+    contact: str | None = Field(default=None, max_length=200)
+
+
+class PatientOut(BaseModel):
+    id: str
+    full_name: str
+    contact: str | None
+    created_at: str
+
+
+class LinkOut(BaseModel):
+    scope: Literal["checkin", "messages"]
+    url: str
+    expires_at: str
