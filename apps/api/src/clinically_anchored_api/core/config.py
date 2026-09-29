@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # environments set it via Railway; move to a KMS before real patient data.
     audit_signing_key: str = ""
     audit_key_id: str = "dev-1"
+    # Public keys of past/other signing keys, so old rows stay verifiable after a
+    # rotation (or when environments share a database): JSON object of
+    # {"<key_id>": "<base64 Ed25519 public key>"}. Public keys aren't secret.
+    # The current key's public half is derived automatically.
+    audit_public_keys: str = ""
 
     # CORS: the web app's origin(s), comma-separated in the env var
     allowed_origins: str = "http://localhost:3000"

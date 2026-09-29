@@ -3,6 +3,7 @@ detection, and the verify endpoint -- against an in-memory fake that mimics
 append_audit_event's head check."""
 
 import base64
+import json
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -132,9 +133,8 @@ def db():
 
 
 def _pub():
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-    return Ed25519PublicKey.from_public_bytes(base64.b64decode(audit.public_key_b64()))
+    """key_id -> public key, as the verify endpoint builds it."""
+    return audit.trusted_public_keys()
 
 
 def _record(db, clinic=CLINIC, body="hello"):
@@ -242,3 +242,54 @@ def test_verify_endpoint(db, monkeypatch):
     body = r.json()
     assert r.status_code == 200 and body["ok"] and body["count"] == 2
     assert body["public_key"] == audit.public_key_b64()
+
+
+def _switch_key(monkeypatch, key_id):
+    """Simulate rotating (or a different environment signing): new key, new id."""
+    seed = Ed25519PrivateKey.generate().private_bytes(
+        Encoding.Raw, PrivateFormat.Raw, NoEncryption()
+    )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "audit_signing_key", base64.b64encode(seed).decode())
+    monkeypatch.setattr(settings, "audit_key_id", key_id)
+    return audit.public_key_b64()
+
+
+def test_chain_signed_by_two_keys_verifies_when_old_key_is_configured(db, monkeypatch):
+    monkeypatch.setattr(get_settings(), "audit_key_id", "dev-1")
+    _record(db)
+    _record(db)
+    old_pub = audit.public_key_b64()
+    _switch_key(monkeypatch, "prod-1")
+    _record(db)
+
+    # Without the old key configured, the old rows can't be checked.
+    broken = audit.verify_chain(db.rows, audit.trusted_public_keys())
+    assert not broken["ok"] and broken["broken_at"] == 1
+    assert "unknown signing key 'dev-1'" in broken["reason"]
+
+    monkeypatch.setattr(get_settings(), "audit_public_keys", json.dumps({"dev-1": old_pub}))
+    result = audit.verify_chain(db.rows, audit.trusted_public_keys())
+    assert result["ok"] and result["count"] == 3
+    assert result["key_ids"] == ["dev-1", "prod-1"]
+
+
+def test_row_relabelled_with_wrong_key_id_fails(db, monkeypatch):
+    monkeypatch.setattr(get_settings(), "audit_key_id", "dev-1")
+    _record(db)
+    old_pub = audit.public_key_b64()
+    _switch_key(monkeypatch, "prod-1")
+    _record(db)
+    monkeypatch.setattr(get_settings(), "audit_public_keys", json.dumps({"dev-1": old_pub}))
+    db.rows[1]["key_id"] = "dev-1"  # claim the prod-signed row came from the old key
+    result = audit.verify_chain(db.rows, audit.trusted_public_keys())
+    assert not result["ok"] and result["reason"] == "signature invalid"
+
+
+def test_malformed_public_keys_config_is_a_clear_error(monkeypatch):
+    monkeypatch.setattr(get_settings(), "audit_public_keys", "not json")
+    with pytest.raises(audit.AuditWriteError, match="AUDIT_PUBLIC_KEYS"):
+        audit.trusted_public_keys()
+    monkeypatch.setattr(get_settings(), "audit_public_keys", '{"dev-1": "!!notbase64!!"}')
+    with pytest.raises(audit.AuditWriteError, match="AUDIT_PUBLIC_KEYS"):
+        audit.trusted_public_keys()
