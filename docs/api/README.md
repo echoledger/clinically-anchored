@@ -42,9 +42,11 @@ Built (branch `feature/check-in-intake`, not yet merged):
 - Red-flag rules (`core/rules.py`) -- **placeholder logic**, not Sarah's real list.
 - Clinician auth (`core/auth.py`): Supabase JWT + `clinic_members` check per clinic.
 - Messages: clinician side (list thread, send, mark read; JWT auth) and patient side
-  (`GET`/`POST /messages?token=`; link-token auth, sender forced to `patient`). Both send
-  paths share one insert-and-audit function. Note: the patient link token also grants
-  read access to the whole thread, and there is no rate limiting yet.
+  (`GET`/`POST /messages?token=`; sender forced to `patient`). Both send paths share one
+  insert-and-audit function. Link tokens are scoped: `checkin` (14-day expiry) and
+  `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
+  own scope. Still bearer links -- anyone holding a messages link can read the thread until
+  it expires -- and there is no rate limiting yet.
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify`. Check-in submit and message send are audited.

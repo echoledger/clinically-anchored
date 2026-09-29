@@ -12,30 +12,47 @@ delivery flow -- nothing sends these over SMS/email today. See the dev-only
 mint endpoint in api/dev.py for how a token gets created for now.
 """
 
+from typing import Literal
+
 from fastapi import HTTPException, Query
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from clinically_anchored_api.core.config import get_settings
 
+Scope = Literal["checkin", "messages"]
+
 
 class InvalidCheckinToken(Exception):
-    """Raised when a check-in link token is missing, tampered with, or expired."""
+    """Raised when a link token is missing, tampered with, expired, or issued
+    for a different purpose than the route it's used on."""
 
 
-def _serializer() -> URLSafeTimedSerializer:
+def _serializer(scope: Scope) -> URLSafeTimedSerializer:
     settings = get_settings()
-    return URLSafeTimedSerializer(settings.checkin_link_secret, salt="checkin-link")
+    # Scope goes into the signing salt as well as the payload, so a token
+    # minted for one purpose fails signature verification for the other.
+    return URLSafeTimedSerializer(settings.checkin_link_secret, salt=f"link:{scope}")
+
+
+def _max_age(scope: Scope) -> int:
+    settings = get_settings()
+    if scope == "messages":
+        return settings.message_link_max_age_seconds
+    return settings.checkin_link_max_age_seconds
+
+
+def create_link_token(*, clinic_id: str, patient_id: str, scope: Scope) -> str:
+    return _serializer(scope).dumps({"clinic_id": clinic_id, "patient_id": patient_id})
 
 
 def create_checkin_token(*, clinic_id: str, patient_id: str) -> str:
-    return _serializer().dumps({"clinic_id": clinic_id, "patient_id": patient_id})
+    return create_link_token(clinic_id=clinic_id, patient_id=patient_id, scope="checkin")
 
 
-def verify_checkin_token(token: str) -> dict[str, str]:
+def verify_link_token(token: str, scope: Scope) -> dict[str, str]:
     """Returns {"clinic_id": ..., "patient_id": ...} or raises InvalidCheckinToken."""
-    settings = get_settings()
     try:
-        data = _serializer().loads(token, max_age=settings.checkin_link_max_age_seconds)
+        data = _serializer(scope).loads(token, max_age=_max_age(scope))
     except SignatureExpired as exc:
         raise InvalidCheckinToken("This link has expired.") from exc
     except BadSignature as exc:
@@ -46,13 +63,20 @@ def verify_checkin_token(token: str) -> dict[str, str]:
     return data
 
 
-def require_link_token(
-    token: str = Query(..., description="Signed patient link token"),
-) -> dict[str, str]:
-    """FastAPI dependency for patient-facing routes: 401 unless the token is
-    valid and unexpired. Clinic and patient come from the token, never from
-    the URL or body."""
-    try:
-        return verify_checkin_token(token)
-    except InvalidCheckinToken as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+def _require(scope: Scope):
+    def dependency(
+        token: str = Query(..., description=f"Signed patient link token (scope: {scope})"),
+    ) -> dict[str, str]:
+        try:
+            return verify_link_token(token, scope)
+        except InvalidCheckinToken as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    return dependency
+
+
+# FastAPI dependencies for patient-facing routes: 401 unless the token is valid,
+# unexpired and issued for that purpose. Clinic and patient come from the
+# token, never from the URL or body.
+require_checkin_token = _require("checkin")
+require_messages_token = _require("messages")

@@ -2,6 +2,8 @@
 so the shapes are easy to scan in one place -- this file is effectively the
 contract apps/web's generated OpenAPI client is built from."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -33,10 +35,12 @@ class CheckInOut(BaseModel):
 class DevCheckinLinkRequest(BaseModel):
     clinic_id: str
     patient_id: str
+    scope: Literal["checkin", "messages"] = "checkin"
 
 
 class DevCheckinLinkResponse(BaseModel):
     token: str
+    scope: str
 
 
 class CheckInContext(BaseModel):

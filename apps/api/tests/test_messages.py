@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from clinically_anchored_api.api import messages as messages_module
 from clinically_anchored_api.core import auth as auth_module
-from clinically_anchored_api.core.security import create_checkin_token
+from clinically_anchored_api.core.security import create_link_token
 from clinically_anchored_api.main import app
 
 CLINIC_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -196,8 +196,8 @@ def test_mark_read_other_clinic_message_is_404(client, fake):
 # --- patient side (link token) ------------------------------------------------
 
 
-def _token(clinic=CLINIC_A, patient=PATIENT_A):
-    return create_checkin_token(clinic_id=clinic, patient_id=patient)
+def _token(clinic=CLINIC_A, patient=PATIENT_A, scope="messages"):
+    return create_link_token(clinic_id=clinic, patient_id=patient, scope=scope)
 
 
 def test_patient_endpoints_reject_bad_token(client):
@@ -245,3 +245,9 @@ def test_patient_message_shows_up_for_clinician_and_can_be_marked_read(client):
     assert [(m["sender"], m["body"]) for m in thread] == [("patient", "hello doctor")]
     read = client.post(f"/clinics/{CLINIC_A}/messages/{thread[0]['id']}/read", headers=AUTH)
     assert read.json()["read_at"] is not None
+
+
+def test_checkin_scoped_token_cannot_touch_messages(client):
+    tok = _token(scope="checkin")
+    assert client.get("/messages", params={"token": tok}).status_code == 401
+    assert client.post("/messages", params={"token": tok}, json={"body": "x"}).status_code == 401

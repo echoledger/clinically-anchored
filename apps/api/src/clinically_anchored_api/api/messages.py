@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from clinically_anchored_api.core.audit import AuditWriteError, record_event
 from clinically_anchored_api.core.auth import ClinicMember, require_clinic_member
 from clinically_anchored_api.core.db import get_supabase
-from clinically_anchored_api.core.security import require_link_token
+from clinically_anchored_api.core.security import require_messages_token
 from clinically_anchored_api.schemas import MessageCreate, MessageOut
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,9 @@ def mark_read(
 
 
 @router.get("/messages", response_model=list[MessageOut])
-def patient_list_thread(claims: dict[str, str] = Depends(require_link_token)) -> list[MessageOut]:
+def patient_list_thread(
+    claims: dict[str, str] = Depends(require_messages_token),
+) -> list[MessageOut]:
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, claims["clinic_id"], claims["patient_id"])
     result = (
@@ -163,7 +165,7 @@ def patient_list_thread(claims: dict[str, str] = Depends(require_link_token)) ->
 
 @router.post("/messages", response_model=MessageOut)
 def patient_send_message(
-    body: MessageCreate, claims: dict[str, str] = Depends(require_link_token)
+    body: MessageCreate, claims: dict[str, str] = Depends(require_messages_token)
 ) -> MessageOut:
     supabase = get_supabase()
     _require_patient_in_clinic(supabase, claims["clinic_id"], claims["patient_id"])

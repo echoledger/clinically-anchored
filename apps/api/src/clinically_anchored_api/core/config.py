@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # deployed environments must set a real, stable value via Railway.
     checkin_link_secret: str = secrets.token_urlsafe(32)
     checkin_link_max_age_seconds: int = 60 * 60 * 24 * 14  # 14 days
+    # Message links expose a whole conversation, so they're separate tokens
+    # (scope=messages) with a much shorter life than check-in links.
+    message_link_max_age_seconds: int = 60 * 60 * 24 * 2  # 48 hours
 
     # Ed25519 signing key for the audit log: base64 of the 32-byte private seed.
     # Must be stable -- a regenerated key orphans every row already signed.
