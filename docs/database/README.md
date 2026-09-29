@@ -34,10 +34,15 @@ token before writing, not the database. RLS in this schema protects the
 clinician/delegate-facing paths (the web app talking to Supabase directly for auth,
 and any direct client reads that go through Supabase rather than the api).
 
+Migration `00000000000003_audit_log_chain.sql` adds `row_hash`, `signature`, `key_id` to
+`audit_log`, a unique index that prevents chain forks, and `append_audit_event()` (per-clinic
+advisory lock; service role only). The api computes hashes/signatures; the DB serialises appends.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
-(i.e. only `apps/api`) can write to it, and nothing can edit or delete a row once
-written.
+(i.e. only `apps/api`) can write to it. Note the service role itself still *can*
+update/delete (only `authenticated`/`anon` are revoked) -- tampering by a service-role
+holder is detectable via the signed chain, not prevented by grants.
 
 ## Mapping to the data catalogue
 
