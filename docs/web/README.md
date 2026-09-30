@@ -37,10 +37,26 @@ their own repos without a rewrite.
 
 ## Current state
 
-Default `create-next-app` scaffold (App Router, TypeScript, Tailwind) — no product UI
-yet. `shadcn/ui` was not initialized (a sandbox network restriction blocked it during
-scaffolding, unrelated to the project); run `pnpm dlx shadcn@latest init` yourself
-before starting component work if you want it.
+A first, basic trial UI for reviewing the clinician workflow (not the card-based
+dashboard from the Overview doc yet):
+
+- `/login`: clinician email + password via Supabase Auth (session handling only; all data
+  goes through `apps/api`).
+- `/dashboard`: "Needs attention" queue (red flags first), add patient, all patients.
+- `/dashboard/patients/[id]`: copy a check-in or messages link for the patient, review
+  check-ins, read and reply to the message thread.
+- `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
+  Patients are link-only for now; patient sign-in comes before real patients.
+
+Uses the user's first clinic. Polls the api every 10-15s (no realtime yet). `shadcn/ui`
+was not initialized.
+
+Env (see `.env.example`): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` (public values; the anon key is safe in the browser).
+The build tolerates them being unset (sign-in then fails at runtime).
+
+Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (patient link
+origin) and add the Vercel origin to `ALLOWED_ORIGINS`.
 
 ## Design references already agreed
 
