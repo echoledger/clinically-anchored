@@ -86,6 +86,12 @@ pre-build the whole catalogue speculatively.
   or messaging are all undecided; `consents` stores and audits whatever the api is told and
   gates nothing. Whether a withdrawal can be recorded by a clinician on a patient's behalf is
   open too.
+- **Known audit gap.** A business row and its `audit_log` row are separate writes, so a failed
+  audit write leaves an unaudited row. Detected, not prevented: `python -m
+  clinically_anchored_api.core.reconcile` (in `apps/api`) lists such rows by cross-referencing
+  `audit_log.metadata` (`ref_type`/`ref_id`) with the business tables. Making the two writes
+  atomic (one SQL function) is the eventual fix if this matters in practice.
+
 - **Plan tier for compliance features.** Free plan has no backups and 1-day log
   retention. Pro ($25/mo) gets 7-day backups and 7-day logs but still no
   HIPAA-equivalent add-on (that's Team, $599/mo). Fine for synthetic data; revisit

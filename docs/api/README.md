@@ -88,8 +88,16 @@ Built (on `main`):
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
   `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
   `consent.granted`/`.revoked`.
-  Known gap: the business row and its audit row are separate writes, so a crash
-  between them leaves an unaudited row (the request returns 500 and logs it).
+  Known gap: the business row and its audit row are separate writes, so a failure
+  between them leaves an unaudited row (the request returns 500 and logs it; the row stays).
+  Reconciliation is a script, not an endpoint: `python -m clinically_anchored_api.core.reconcile
+  [--clinic ID] [--since ISO] [--json]` (needs the api's Supabase env, e.g. `railway run`)
+  matches every row against `audit_log` by clinic, `event_type` and `metadata.ref_id`, and
+  reports unaudited rows (exit 1) plus, informationally, audit events whose row is gone. It is
+  read-only and selects ids/timestamps only; what to do about an orphan is a human decision.
+  Links can't orphan: they have no row, and the URL is returned only after its audit write.
+  Rows that predate an event type (seed-migration patients, messages read before `message.read`
+  was audited) show as unaudited -- scope with `--since`.
 
 Not built: rolling summaries, AI-draft audit events.
 Tests and lint (`pytest`, `ruff`) run in CI.
@@ -120,7 +128,8 @@ Tests and lint (`pytest`, `ruff`) run in CI.
 3. ~~Message send/receive endpoints~~ Done, both sides.
 4. Rolling summary generation, with per-line provenance links back to source messages.
 5. ~~Audit log writer~~ Done for check-ins, messages, patients, links and consent. Wire every
-   new write through it (summaries, AI-draft approvals) rather than bolting it on later.
+   new write through it (summaries, AI-draft approvals) rather than bolting it on later, and add
+   its (table, event) pair to `CHECKS` in `core/reconcile.py`.
 
 ## Reference
 
