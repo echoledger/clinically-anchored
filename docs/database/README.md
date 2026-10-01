@@ -41,6 +41,15 @@ advisory lock; service role only). The api computes hashes/signatures; the DB se
 Migration `00000000000004_check_in_review.sql` adds `check_ins.reviewed_at` / `reviewed_by`
 (clinician review state that drives the queue) and partial indexes for the queue's reads.
 
+Migration `00000000000005_consents.sql` adds `consents` (D12): one row per grant
+(`clinic_id`, `patient_id`, `consent_type`, `consent_text_version`, `granted_at`, nullable
+`revoked_at`), RLS read for clinic members via `is_clinic_member()`, and INSERT/UPDATE/DELETE
+revoked from `authenticated`/`anon` -- only `apps/api` writes it, and audits every change.
+A partial unique index allows one live grant per patient/type/wording version. It is
+intentionally generic: `consent_type` is a slug check, not an enum, because the list of
+consents, their wording and what they gate are still undecided (see Open items). Like all
+migrations it takes effect on the shared Supabase project only after `npx supabase db push`.
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*
@@ -59,17 +68,29 @@ a subset of it:
 | D5 | Clinician/delegate accounts | `clinic_members` (roles: owner/clinician/delegate) |
 | D6/D7 | Messages (patient/clinician) | `messages` |
 | D29 | Structured check-in answers | `check_ins` |
+| D12 | Consent records | `consents` (generic; wording/types/gating undecided) |
 | D16/D17 | Audit log, signed and hash-chained | `audit_log` |
 
 Not yet modeled, and not needed until their stage comes up: D8 (AI drafts), D9
 (wound photos — v2, blocked in v1), D10 (confirmed summary facts, sourced from her
 own Accuro notes, later stage), D11 (touchpoint events — calls/visits logged
-manually), D12 (consent records), D13 (protocol/template library), D14 (derived
+manually), D13 (protocol/template library), D14 (derived
 scores/triage priority), D22 (model/prompt version metadata, hashed into attestation
 events). Add these as their features get built, each with its own migration — don't
 pre-build the whole catalogue speculatively.
 
 ## Open items (genuinely unresolved, don't guess)
+
+- **Consent specifics** (Sarah's call). The wording, which `consent_type`s exist (messaging vs.
+  AI-assisted communication per the catalogue), and whether a missing consent blocks check-in
+  or messaging are all undecided; `consents` stores and audits whatever the api is told and
+  gates nothing. Whether a withdrawal can be recorded by a clinician on a patient's behalf is
+  open too.
+- **Known audit gap.** A business row and its `audit_log` row are separate writes, so a failed
+  audit write leaves an unaudited row. Detected, not prevented: `python -m
+  clinically_anchored_api.core.reconcile` (in `apps/api`) lists such rows by cross-referencing
+  `audit_log.metadata` (`ref_type`/`ref_id`) with the business tables. Making the two writes
+  atomic (one SQL function) is the eventual fix if this matters in practice.
 
 - **Plan tier for compliance features.** Free plan has no backups and 1-day log
   retention. Pro ($25/mo) gets 7-day backups and 7-day logs but still no

@@ -35,7 +35,7 @@ patient's link token), not the database.
 
 ## Current state
 
-Built (branch `feature/check-in-intake`, not yet merged):
+Built (on `main`):
 
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context`, signed/expiring link
   tokens (`core/security.py`), dev-only `POST /dev/check-in-links`.
@@ -46,7 +46,30 @@ Built (branch `feature/check-in-intake`, not yet merged):
   insert-and-audit function. Link tokens are scoped: `checkin` (14-day expiry) and
   `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
   own scope. Still bearer links -- anyone holding a messages link can read the thread until
-  it expires -- and there is no rate limiting yet.
+  it expires. Mark-read is audited (`message.read`, first read only).
+- Rate limiting on every link-token route (`core/ratelimit.py`, applied in the token
+  dependency in `core/security.py`): per patient, sliding 60s window, 60 reads and 10 writes
+  per minute (`PATIENT_LINK_READS_PER_MINUTE` / `PATIENT_LINK_WRITES_PER_MINUTE`; 0 disables).
+  429 with `Retry-After`. **In-memory, single instance:** counters reset on restart and are
+  not shared across instances/workers -- Redis-backed limiting is a Pro-tier job and `hit()`
+  is the seam to swap. Keyed by the verified token's patient (shared across their link
+  scopes), not by IP: behind Railway's proxy `request.client.host` isn't the real client unless
+  uvicorn is told to trust forwarded headers. Invalid tokens aren't counted (rejected by HMAC
+  before any DB work). Clinician routes are not rate limited.
+- Consent records (`api/consents.py`, migration 5, data-catalogue D12) -- **storage and audit
+  only, nothing is gated.** Patient side, any link scope: `GET /consents`, `POST /consents`
+  (`consent_type` slug + `consent_text_version`), `POST /consents/{type}/revoke`. Clinician side:
+  `GET /clinics/{id}/patients/{pid}/consents` (current `active` types + full history).
+  One row per grant; withdrawing sets `revoked_at` on every live grant of that type, a later
+  re-grant is a new row. Grants are idempotent per (type, version); a new wording version is
+  a new grant. Each grant/withdrawal is audited (`consent.granted` / `consent.revoked`, ref
+  type `consent`). **Open, Sarah's call -- deliberately not decided here:** the consent
+  wording (lives outside this service, referenced by version), whether any consent blocks
+  check-in or messaging, and how many types there are (messaging vs. AI-assisted
+  communication per the catalogue). Until the list is settled any well-formed slug is accepted;
+  set `CONSENT_TYPES` (comma-separated) to enforce a list. Not built: a clinician-side
+  "record a withdrawal on the patient's behalf" route (who may do that is part of the same
+  open question).
 - Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
   unreviewed check-ins + unread patient messages, unreviewed red flags first),
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
@@ -62,12 +85,21 @@ Built (branch `feature/check-in-intake`, not yet merged):
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
-  `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Check-in submit and message send are audited.
-  Known gap: the business row and its audit row are separate writes, so a crash
-  between them leaves an unaudited row (the request returns 500 and logs it).
-  Not audited yet: mark-read.
+  `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
+  `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
+  `consent.granted`/`.revoked`.
+  Known gap: the business row and its audit row are separate writes, so a failure
+  between them leaves an unaudited row (the request returns 500 and logs it; the row stays).
+  Reconciliation is a script, not an endpoint: `python -m clinically_anchored_api.core.reconcile
+  [--clinic ID] [--since ISO] [--json]` (needs the api's Supabase env, e.g. `railway run`)
+  matches every row against `audit_log` by clinic, `event_type` and `metadata.ref_id`, and
+  reports unaudited rows (exit 1) plus, informationally, audit events whose row is gone. It is
+  read-only and selects ids/timestamps only; what to do about an orphan is a human decision.
+  Links can't orphan: they have no row, and the URL is returned only after its audit write.
+  Rows that predate an event type (seed-migration patients, messages read before `message.read`
+  was audited) show as unaudited -- scope with `--since`.
 
-Not built: rolling summaries, consent/AI-draft audit events.
+Not built: rolling summaries, AI-draft audit events.
 Tests and lint (`pytest`, `ruff`) run in CI.
 
 ## Hard constraints (not negotiable without a product conversation first)
@@ -95,8 +127,9 @@ Tests and lint (`pytest`, `ruff`) run in CI.
    later, once there's a clinician using it).
 3. ~~Message send/receive endpoints~~ Done, both sides.
 4. Rolling summary generation, with per-line provenance links back to source messages.
-5. ~~Audit log writer~~ Done for check-ins and messages. Wire every new write through
-   it (summaries, consent, AI-draft approvals) rather than bolting it on later.
+5. ~~Audit log writer~~ Done for check-ins, messages, patients, links and consent. Wire every
+   new write through it (summaries, AI-draft approvals) rather than bolting it on later, and add
+   its (table, event) pair to `CHECKS` in `core/reconcile.py`.
 
 ## Reference
 

@@ -113,34 +113,66 @@ def send_message(
     )
 
 
-@router.post("/clinics/{clinic_id}/messages/{message_id}/read", response_model=MessageOut)
-def mark_read(
-    clinic_id: str, message_id: str, _member: ClinicMember = Depends(require_clinic_member)
-) -> MessageOut:
-    """Mark a patient's message as read by the clinic. Idempotent: only sets
-    read_at the first time."""
-    supabase = get_supabase()
-    existing = (
+def _get_message(supabase, clinic_id: str, message_id: str) -> dict:
+    found = (
         supabase.table("messages")
         .select(_COLUMNS)
         .eq("id", message_id)
         .eq("clinic_id", clinic_id)
         .execute()
+        .data
     )
-    if not existing.data:
+    if not found:
         raise HTTPException(status_code=404, detail="Message not found.")
-    row = existing.data[0]
+    return found[0]
+
+
+@router.post("/clinics/{clinic_id}/messages/{message_id}/read", response_model=MessageOut)
+def mark_read(
+    clinic_id: str, message_id: str, member: ClinicMember = Depends(require_clinic_member)
+) -> MessageOut:
+    """Mark a patient's message as read by the clinic. Idempotent: only the
+    first read sets read_at, and only that read is audited (`message.read`)."""
+    supabase = get_supabase()
+    row = _get_message(supabase, clinic_id, message_id)
     if row["sender"] != "patient" or row["read_at"] is not None:
         return MessageOut(**row)
 
+    # `is null` in the update makes concurrent readers race safely: only one
+    # update matches, and only that caller writes the audit event.
     updated = (
         supabase.table("messages")
         .update({"read_at": datetime.now(UTC).isoformat()})
         .eq("id", message_id)
         .eq("clinic_id", clinic_id)
+        .is_("read_at", "null")
         .execute()
+        .data
     )
-    return MessageOut(**updated.data[0])
+    if not updated:
+        return MessageOut(**_get_message(supabase, clinic_id, message_id))  # lost the race
+    row = updated[0]
+    try:
+        record_event(
+            supabase,
+            clinic_id=clinic_id,
+            event_type="message.read",
+            payload={
+                "message_id": message_id,
+                "patient_id": row["patient_id"],
+                "read_by": member.user_id,
+                "read_at": row["read_at"],
+            },
+            metadata={
+                "ref_type": "message",
+                "ref_id": message_id,
+                "actor": {"type": "member", "id": member.user_id, "role": member.role},
+            },
+        )
+    except AuditWriteError as exc:
+        logger.error("message %s marked read but audit write failed: %s", message_id, exc)
+        raise HTTPException(status_code=500, detail="Message marked read but not audited.") from exc
+    return MessageOut(**row)
 
 
 # --- Patient side: authenticated by the signed link token, no account. -------
