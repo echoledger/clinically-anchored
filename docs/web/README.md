@@ -58,6 +58,22 @@ The build tolerates them being unset (sign-in then fails at runtime).
 Vercel: Root Directory `apps/web`. On the api side, set `WEB_BASE_URL` (patient link
 origin) and add the Vercel origin to `ALLOWED_ORIGINS`.
 
+## Deploying (Vercel + Railway)
+
+1. **Vercel**: import the GitHub repo, set **Root Directory** to `apps/web`, and add
+   `NEXT_PUBLIC_API_URL` (the Railway api URL), `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` *before* the first build -- `NEXT_PUBLIC_*` values are
+   baked in at build time, so changing them needs a redeploy. The anon key is public by
+   design (Vercel warns about it; keep the `NEXT_PUBLIC_` name and mark it as config). Never
+   put the `service_role` key here.
+2. **Railway** (api service): set `WEB_BASE_URL` and `ALLOWED_ORIGINS` to the Vercel origin
+   (no trailing slash). Without `WEB_BASE_URL` the "copy link" buttons return 503; without
+   `ALLOWED_ORIGINS` the browser blocks every call to the api (CORS).
+3. Vercel builds every pushed branch as a Preview and `main` as Production. A preview's
+   origin differs from production's, so it also needs adding to `ALLOWED_ORIGINS` to work
+   against the api.
+4. Give each clinician a Supabase Auth user (Auto Confirm) plus a `clinic_members` row.
+
 ## Design references already agreed
 
 The Overview doc (Claude Docs artifact, "Patient Messaging Tool — Overview") has
