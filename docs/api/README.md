@@ -35,7 +35,7 @@ patient's link token), not the database.
 
 ## Current state
 
-Built (branch `feature/check-in-intake`, not yet merged):
+Built (on `main`):
 
 - Check-in intake: `POST /check-ins`, `GET /check-ins/context`, signed/expiring link
   tokens (`core/security.py`), dev-only `POST /dev/check-in-links`.
@@ -46,7 +46,7 @@ Built (branch `feature/check-in-intake`, not yet merged):
   insert-and-audit function. Link tokens are scoped: `checkin` (14-day expiry) and
   `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
   own scope. Still bearer links -- anyone holding a messages link can read the thread until
-  it expires -- and there is no rate limiting yet.
+  it expires -- and there is no rate limiting yet. Mark-read is audited (`message.read`, first read only).
 - Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
   unreviewed check-ins + unread patient messages, unreviewed red flags first),
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
@@ -62,10 +62,10 @@ Built (branch `feature/check-in-intake`, not yet merged):
 - Audit log writer (`core/audit.py`): salted payload hash, per-clinic hash chain,
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
-  `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Check-in submit and message send are audited.
+  `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
+  `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`.
   Known gap: the business row and its audit row are separate writes, so a crash
   between them leaves an unaudited row (the request returns 500 and logs it).
-  Not audited yet: mark-read.
 
 Not built: rolling summaries, consent/AI-draft audit events.
 Tests and lint (`pytest`, `ruff`) run in CI.
@@ -95,8 +95,8 @@ Tests and lint (`pytest`, `ruff`) run in CI.
    later, once there's a clinician using it).
 3. ~~Message send/receive endpoints~~ Done, both sides.
 4. Rolling summary generation, with per-line provenance links back to source messages.
-5. ~~Audit log writer~~ Done for check-ins and messages. Wire every new write through
-   it (summaries, consent, AI-draft approvals) rather than bolting it on later.
+5. ~~Audit log writer~~ Done for check-ins, messages, patients and links. Wire every
+   new write through it (summaries, consent, AI-draft approvals) rather than bolting it on later.
 
 ## Reference
 

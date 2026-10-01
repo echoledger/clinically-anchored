@@ -22,6 +22,7 @@ class _Query:
     def __init__(self, rows: list[dict]):
         self._rows = rows
         self._filters: list[tuple[str, object]] = []
+        self._null_cols: list[str] = []
         self._insert: dict | None = None
         self._update: dict | None = None
         self._order: str | None = None
@@ -31,6 +32,11 @@ class _Query:
 
     def eq(self, col, val):
         self._filters.append((col, val))
+        return self
+
+    def is_(self, col, val):
+        assert val == "null"
+        self._null_cols.append(col)
         return self
 
     def order(self, col, **_k):
@@ -46,7 +52,12 @@ class _Query:
         return self
 
     def _matching(self):
-        return [r for r in self._rows if all(r.get(c) == v for c, v in self._filters)]
+        return [
+            r
+            for r in self._rows
+            if all(r.get(c) == v for c, v in self._filters)
+            and all(r.get(c) is None for c in self._null_cols)
+        ]
 
     def execute(self):
         if self._insert is not None:
@@ -182,6 +193,50 @@ def test_mark_read_only_touches_patient_messages_and_is_idempotent(client, fake)
 
     own = client.post(f"/clinics/{CLINIC_A}/messages/c1/read", headers=AUTH).json()
     assert own["read_at"] is None
+
+
+def test_mark_read_audits_only_the_first_read(client, fake, audit_calls):
+    fake.tables["messages"].append(
+        {"id": "p1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "patient",
+         "body": "private words", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
+    )
+    url = f"/clinics/{CLINIC_A}/messages/p1/read"
+    first = client.post(url, headers=AUTH).json()
+    client.post(url, headers=AUTH)  # repeat read: no second event
+
+    assert len(audit_calls) == 1
+    call = audit_calls[0]
+    assert call["event_type"] == "message.read"
+    assert call["clinic_id"] == CLINIC_A
+    assert call["payload"]["read_by"] == USER
+    assert call["payload"]["read_at"] == first["read_at"]
+    assert call["metadata"]["ref_type"] == "message"
+    assert call["metadata"]["ref_id"] == "p1"
+    assert call["metadata"]["actor"] == {"type": "member", "id": USER, "role": "clinician"}
+    assert "private words" not in str(call["metadata"])
+
+
+def test_mark_read_does_not_audit_clinician_messages(client, fake, audit_calls):
+    fake.tables["messages"].append(
+        {"id": "c1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "clinician",
+         "body": "hi", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
+    )
+    client.post(f"/clinics/{CLINIC_A}/messages/c1/read", headers=AUTH)
+    assert audit_calls == []
+
+
+def test_mark_read_reports_500_when_audit_write_fails(client, fake, monkeypatch):
+    def boom(_db, **_kw):
+        raise messages_module.AuditWriteError("down")
+
+    monkeypatch.setattr(messages_module, "record_event", boom)
+    fake.tables["messages"].append(
+        {"id": "p1", "clinic_id": CLINIC_A, "patient_id": PATIENT_A, "sender": "patient",
+         "body": "x", "read_at": None, "created_at": "2026-01-01T00:00:00Z"}
+    )
+    r = client.post(f"/clinics/{CLINIC_A}/messages/p1/read", headers=AUTH)
+    assert r.status_code == 500
+    assert "not audited" in r.json()["detail"]
 
 
 def test_mark_read_other_clinic_message_is_404(client, fake):
