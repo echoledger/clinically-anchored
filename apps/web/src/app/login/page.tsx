@@ -17,7 +17,14 @@ export default function LoginPage() {
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      setError("That email and password didn't work.");
+      // Wrong credentials are the common case; anything else (network, config,
+      // rate limit) should show its real reason so it can be diagnosed.
+      const wrongLogin = error.status === 400 && /invalid login credentials/i.test(error.message);
+      setError(
+        wrongLogin
+          ? "That email and password didn't work."
+          : `Sign-in failed: ${error.message || "couldn't reach the sign-in service"}`,
+      );
       setBusy(false);
       return;
     }
