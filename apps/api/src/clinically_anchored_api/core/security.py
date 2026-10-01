@@ -94,3 +94,5 @@ def _require(*scopes: Scope):
 # request budget. Clinic and patient come from the token, never from the URL or body.
 require_checkin_token = _require("checkin")
 require_messages_token = _require("messages")
+# Consent can be captured in either flow, so either link may carry it.
+require_any_link_token = _require("messages", "checkin")

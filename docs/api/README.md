@@ -56,6 +56,20 @@ Built (on `main`):
   scopes), not by IP: behind Railway's proxy `request.client.host` isn't the real client unless
   uvicorn is told to trust forwarded headers. Invalid tokens aren't counted (rejected by HMAC
   before any DB work). Clinician routes are not rate limited.
+- Consent records (`api/consents.py`, migration 5, data-catalogue D12) -- **storage and audit
+  only, nothing is gated.** Patient side, any link scope: `GET /consents`, `POST /consents`
+  (`consent_type` slug + `consent_text_version`), `POST /consents/{type}/revoke`. Clinician side:
+  `GET /clinics/{id}/patients/{pid}/consents` (current `active` types + full history).
+  One row per grant; withdrawing sets `revoked_at` on every live grant of that type, a later
+  re-grant is a new row. Grants are idempotent per (type, version); a new wording version is
+  a new grant. Each grant/withdrawal is audited (`consent.granted` / `consent.revoked`, ref
+  type `consent`). **Open, Sarah's call -- deliberately not decided here:** the consent
+  wording (lives outside this service, referenced by version), whether any consent blocks
+  check-in or messaging, and how many types there are (messaging vs. AI-assisted
+  communication per the catalogue). Until the list is settled any well-formed slug is accepted;
+  set `CONSENT_TYPES` (comma-separated) to enforce a list. Not built: a clinician-side
+  "record a withdrawal on the patient's behalf" route (who may do that is part of the same
+  open question).
 - Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
   unreviewed check-ins + unread patient messages, unreviewed red flags first),
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
@@ -72,11 +86,12 @@ Built (on `main`):
   Ed25519 signature, atomic append via `append_audit_event()` (migration 3), and
   `GET /clinics/{id}/audit-log/verify` (checks each row against the public key named by its
   `key_id`; keys other than the current one come from `AUDIT_PUBLIC_KEYS`). Audited events:
-  `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`.
+  `check_in.submitted`/`.reviewed`, `message.sent`/`.read`, `patient.created`, `link.issued`,
+  `consent.granted`/`.revoked`.
   Known gap: the business row and its audit row are separate writes, so a crash
   between them leaves an unaudited row (the request returns 500 and logs it).
 
-Not built: rolling summaries, consent/AI-draft audit events.
+Not built: rolling summaries, AI-draft audit events.
 Tests and lint (`pytest`, `ruff`) run in CI.
 
 ## Hard constraints (not negotiable without a product conversation first)
@@ -104,8 +119,8 @@ Tests and lint (`pytest`, `ruff`) run in CI.
    later, once there's a clinician using it).
 3. ~~Message send/receive endpoints~~ Done, both sides.
 4. Rolling summary generation, with per-line provenance links back to source messages.
-5. ~~Audit log writer~~ Done for check-ins, messages, patients and links. Wire every
-   new write through it (summaries, consent, AI-draft approvals) rather than bolting it on later.
+5. ~~Audit log writer~~ Done for check-ins, messages, patients, links and consent. Wire every
+   new write through it (summaries, AI-draft approvals) rather than bolting it on later.
 
 ## Reference
 

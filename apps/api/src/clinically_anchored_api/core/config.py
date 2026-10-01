@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     patient_link_reads_per_minute: int = 60
     patient_link_writes_per_minute: int = 10
 
+    # Consent types (comma-separated slugs) that may be granted. Which consents
+    # exist is a product/legal decision that isn't made yet, so empty means any
+    # well-formed slug is accepted; set it once the list is settled to turn
+    # typos and invented types into 422s.
+    consent_types: str = ""
+
     # Ed25519 signing key for the audit log: base64 of the 32-byte private seed.
     # Must be stable -- a regenerated key orphans every row already signed.
     # Generate with `python -m clinically_anchored_api.core.audit`. Deployed
@@ -82,6 +88,10 @@ class Settings(BaseSettings):
                 f"ENVIRONMENT={self.environment!r} requires these to be set: {', '.join(missing)}"
             )
         return self
+
+    @property
+    def consent_types_list(self) -> list[str]:
+        return [t.strip() for t in self.consent_types.split(",") if t.strip()]
 
     @property
     def allowed_origins_list(self) -> list[str]:

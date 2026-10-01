@@ -136,3 +136,33 @@ class LinkOut(BaseModel):
     scope: Literal["checkin", "messages"]
     url: str
     expires_at: str
+
+
+# Consent types are slugs and wording versions are opaque labels: which ones
+# exist, and what they say, is decided outside this service (see
+# core/config.py `consent_types`). The shapes here only keep them well-formed.
+CONSENT_TYPE_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+
+
+class ConsentGrant(BaseModel):
+    consent_type: str = Field(pattern=CONSENT_TYPE_PATTERN)
+    # Identifies the exact wording the patient was shown, e.g. "messaging-v1".
+    consent_text_version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+class ConsentOut(BaseModel):
+    id: str
+    patient_id: str
+    consent_type: str
+    consent_text_version: str
+    granted_at: str
+    revoked_at: str | None
+
+
+class ConsentSummaryOut(BaseModel):
+    """A patient's consent state: which types are currently granted, plus the
+    full history (every grant and withdrawal), newest first."""
+
+    patient_id: str
+    active: list[str]
+    records: list[ConsentOut]
