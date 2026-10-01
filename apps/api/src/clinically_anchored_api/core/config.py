@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # (scope=messages) with a much shorter life than check-in links.
     message_link_max_age_seconds: int = 60 * 60 * 24 * 2  # 48 hours
 
+    # Per-patient request budgets on link-token routes (see core/ratelimit.py).
+    # In-memory, so per instance; 0 or less turns a budget off.
+    patient_link_reads_per_minute: int = 60
+    patient_link_writes_per_minute: int = 10
+
     # Ed25519 signing key for the audit log: base64 of the 32-byte private seed.
     # Must be stable -- a regenerated key orphans every row already signed.
     # Generate with `python -m clinically_anchored_api.core.audit`. Deployed

@@ -46,7 +46,16 @@ Built (on `main`):
   insert-and-audit function. Link tokens are scoped: `checkin` (14-day expiry) and
   `messages` (48h, `MESSAGE_LINK_MAX_AGE_SECONDS`); a token only works on routes of its
   own scope. Still bearer links -- anyone holding a messages link can read the thread until
-  it expires -- and there is no rate limiting yet. Mark-read is audited (`message.read`, first read only).
+  it expires. Mark-read is audited (`message.read`, first read only).
+- Rate limiting on every link-token route (`core/ratelimit.py`, applied in the token
+  dependency in `core/security.py`): per patient, sliding 60s window, 60 reads and 10 writes
+  per minute (`PATIENT_LINK_READS_PER_MINUTE` / `PATIENT_LINK_WRITES_PER_MINUTE`; 0 disables).
+  429 with `Retry-After`. **In-memory, single instance:** counters reset on restart and are
+  not shared across instances/workers -- Redis-backed limiting is a Pro-tier job and `hit()`
+  is the seam to swap. Keyed by the verified token's patient (shared across their link
+  scopes), not by IP: behind Railway's proxy `request.client.host` isn't the real client unless
+  uvicorn is told to trust forwarded headers. Invalid tokens aren't counted (rejected by HMAC
+  before any DB work). Clinician routes are not rate limited.
 - Clinician queue (`api/queue.py`): `GET /clinics/{id}/queue` (patients needing attention:
   unreviewed check-ins + unread patient messages, unreviewed red flags first),
   `GET /clinics/{id}/check-ins` (filters: unreviewed / red flag / patient), and
