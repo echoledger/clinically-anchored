@@ -99,6 +99,21 @@ Built (on `main`):
   Rows that predate an event type (seed-migration patients, messages read before `message.read`
   was audited) show as unaudited -- scope with `--since`.
 
+- AI wrapper (`core/ai.py`, **not wired to any route yet**): thin AWS Bedrock Converse client
+  (boto3, standard credential chain), always `ca-central-1` (fixed in code; `AWS_REGION` is ignored
+  so inference can't drift out of Canada), model from `BEDROCK_MODEL_ID` (default Claude Haiku
+  4.5). `generate()` takes the caller's `prompt_version`, sends it to Bedrock as request metadata
+  and returns it with the model id and token usage, so the *caller* logs all three to the audit
+  trail (this module writes no audit events). Per-clinic daily call cap
+  (`AI_DAILY_CALL_CAP_PER_CLINIC`, default 200; 0 blocks everything) is checked before Bedrock
+  is called and raises `AIDailyCapExceeded`; in-memory, per instance, UTC day, failed calls
+  count. Prompt/reply text is never logged. Versioned prompt templates live in
+  `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
+  loaded with `load_template(name, "v1")`; the two shipped (`draft_reply_v1`, `summary_v1`) are
+  **placeholder wording pending clinical review**. A wording change is a new version file.
+  Inference location remains a product decision (see the hard constraints below): this wrapper
+  assumes Bedrock in ca-central-1 and nothing sends patient content to it yet.
+
 Not built: rolling summaries, AI-draft audit events.
 Tests and lint (`pytest`, `ruff`) run in CI.
 

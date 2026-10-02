@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # typos and invented types into 422s.
     consent_types: str = ""
 
+    # AI (core/ai.py): Bedrock model and the per-clinic daily call cap. Credentials
+    # are not settings -- boto3 reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
+    # the real process environment. The cap is a cost guard, so 0 means "no AI calls
+    # at all" (a kill switch), never "unlimited".
+    bedrock_model_id: str = "anthropic.claude-haiku-4-5-20251001-v1:0"
+    ai_daily_call_cap_per_clinic: int = 200
+
     # Ed25519 signing key for the audit log: base64 of the 32-byte private seed.
     # Must be stable -- a regenerated key orphans every row already signed.
     # Generate with `python -m clinically_anchored_api.core.audit`. Deployed
