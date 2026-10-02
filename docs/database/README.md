@@ -50,6 +50,19 @@ intentionally generic: `consent_type` is a slug check, not an enum, because the 
 consents, their wording and what they gate are still undecided (see Open items). Like all
 migrations it takes effect on the shared Supabase project only after `npx supabase db push`.
 
+Migration `00000000000006_message_drafts.sql` adds `message_drafts` (D8): a model-written reply
+to one patient message, with `draft_text`, `model_id`, `prompt_version`, `status`
+(pending/approved/edited/rejected), `final_text` / `sent_message_id` (set only when sent) and
+who decided when. RLS read for clinic members; INSERT/UPDATE/DELETE revoked from
+`authenticated`/`anon`. A CHECK ties each status to its fields (e.g. approved => final_text equals
+the draft and a message was sent), a partial unique index allows one pending draft per patient
+message, and `decide_message_draft()` (service role only) locks the draft, requires it still be
+pending, sends the message and records the outcome in one transaction. Drafts are permanent: a
+trigger blocks deletes and any change to the original columns or to a decided draft, and the
+foreign keys deliberately have no ON DELETE CASCADE (deleting a clinic/patient/message a draft
+points at is refused). Relaxing that needs a deliberate migration once retention is decided.
+Like every migration it takes effect on the shared Supabase project only once applied (psql or `supabase db push`).
+
 `audit_log` is append-only at the database level: `UPDATE`/`DELETE` are revoked for
 `authenticated`/`anon` entirely, not just gated by a policy. Only the service role
 (i.e. only `apps/api`) can write to it. Note the service role itself still *can*
@@ -69,9 +82,10 @@ a subset of it:
 | D6/D7 | Messages (patient/clinician) | `messages` |
 | D29 | Structured check-in answers | `check_ins` |
 | D12 | Consent records | `consents` (generic; wording/types/gating undecided) |
+| D8 | AI message drafts | `message_drafts` |
 | D16/D17 | Audit log, signed and hash-chained | `audit_log` |
 
-Not yet modeled, and not needed until their stage comes up: D8 (AI drafts), D9
+Not yet modeled, and not needed until their stage comes up: D9
 (wound photos — v2, blocked in v1), D10 (confirmed summary facts, sourced from her
 own Accuro notes, later stage), D11 (touchpoint events — calls/visits logged
 manually), D13 (protocol/template library), D14 (derived
