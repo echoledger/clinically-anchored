@@ -4,14 +4,18 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
+import { DraftsSection } from "@/components/draft-review";
+import { SummarySection } from "@/components/summary-view";
 import { ApiError } from "@/lib/api";
 import {
   CheckInDetail,
+  Draft,
   IssuedLink,
   Message,
   Patient,
   issueLink,
   listCheckIns,
+  listDrafts,
   listPatients,
   listThread,
   markRead,
@@ -33,19 +37,44 @@ export default function PatientPage() {
   return (
     <>
       <AppHeader clinicName={clinician.clinic.name} email={clinician.email} />
-      <PatientView clinicId={clinician.clinic.id} patientId={params.id} />
+      <PatientView
+        clinicId={clinician.clinic.id}
+        role={clinician.clinic.role}
+        patientId={params.id}
+      />
     </>
   );
 }
 
-function PatientView({ clinicId, patientId }: { clinicId: string; patientId: string }) {
+function PatientView({
+  clinicId,
+  role,
+  patientId,
+}: {
+  clinicId: string;
+  role: string;
+  patientId: string;
+}) {
   const marked = useRef<Set<string>>(new Set());
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  // Scroll a cited message into view in the thread and flash it, so a summary
+  // citation lands on the exact message.
+  const jumpToMessage = useCallback((messageId: string) => {
+    const el = document.getElementById(`message-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlighted(messageId);
+    window.setTimeout(() => setHighlighted((cur) => (cur === messageId ? null : cur)), 2500);
+  }, []);
 
   const fetchAll = useCallback(async () => {
-    const [patients, checkIns, thread] = await Promise.all([
+    const [patients, checkIns, thread, drafts] = await Promise.all([
       listPatients(clinicId),
       listCheckIns(clinicId, patientId),
       listThread(clinicId, patientId),
+      // Drafts are an add-on: if they fail to load, the rest of the page still works.
+      listDrafts(clinicId, patientId).catch(() => null),
     ]);
     // Viewing the thread counts as reading the patient's new messages.
     for (const m of thread) {
@@ -54,13 +83,19 @@ function PatientView({ clinicId, patientId }: { clinicId: string; patientId: str
         markRead(clinicId, m.id).catch(() => marked.current.delete(m.id));
       }
     }
-    return { patient: patients.find((p) => p.id === patientId) ?? null, checkIns, thread };
+    return {
+      patient: patients.find((p) => p.id === patientId) ?? null,
+      checkIns,
+      thread,
+      drafts,
+    };
   }, [clinicId, patientId]);
   const { data, failed, reload } = usePolling(fetchAll, REFRESH_MS);
 
   const patient: Patient | null | undefined = data ? data.patient : undefined;
   const checkIns: CheckInDetail[] | null = data?.checkIns ?? null;
   const thread: Message[] | null = data?.thread ?? null;
+  const drafts: Draft[] | null = data?.drafts ?? null;
   const error = failed ? "Couldn't refresh. Retrying..." : null;
   const load = reload;
 
@@ -86,6 +121,13 @@ function PatientView({ clinicId, patientId }: { clinicId: string; patientId: str
 
       <LinksCard clinicId={clinicId} patientId={patientId} />
 
+      <SummarySection
+        clinicId={clinicId}
+        patientId={patientId}
+        thread={thread}
+        onJump={jumpToMessage}
+      />
+
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
           Check-ins
@@ -105,11 +147,26 @@ function PatientView({ clinicId, patientId }: { clinicId: string; patientId: str
         )}
       </section>
 
+      <DraftsSection
+        clinicId={clinicId}
+        patientId={patientId}
+        role={role}
+        drafts={drafts}
+        thread={thread}
+        onChanged={load}
+      />
+
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
           Messages
         </h2>
-        <Thread clinicId={clinicId} patientId={patientId} thread={thread} onSent={load} />
+        <Thread
+          clinicId={clinicId}
+          patientId={patientId}
+          thread={thread}
+          highlighted={highlighted}
+          onSent={load}
+        />
       </section>
     </main>
   );
@@ -254,11 +311,13 @@ function Thread({
   clinicId,
   patientId,
   thread,
+  highlighted,
   onSent,
 }: {
   clinicId: string;
   patientId: string;
   thread: Message[] | null;
+  highlighted: string | null;
   onSent: () => void;
 }) {
   const [text, setText] = useState("");
@@ -290,7 +349,13 @@ function Thread({
           <p className="text-zinc-600">No messages yet.</p>
         ) : (
           thread.map((m) => (
-            <div key={m.id} className={m.sender === "clinician" ? "text-right" : "text-left"}>
+            <div
+              key={m.id}
+              id={`message-${m.id}`}
+              className={`rounded-lg p-1 transition-shadow ${
+                m.sender === "clinician" ? "text-right" : "text-left"
+              } ${highlighted === m.id ? "bg-amber-50 ring-2 ring-amber-400" : ""}`}
+            >
               <div
                 className={`inline-block max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-sm ${
                   m.sender === "clinician" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-900"
