@@ -44,7 +44,23 @@ dashboard from the Overview doc yet):
   goes through `apps/api`).
 - `/dashboard`: "Needs attention" queue (red flags first), add patient, all patients.
 - `/dashboard/patients/[id]`: copy a check-in or messages link for the patient, review
-  check-ins, read and reply to the message thread.
+  check-ins, read and reply to the message thread, plus two AI-assisted sections:
+  - **Summary** (`components/summary-view.tsx`): "Summarise this conversation" calls the api
+    on demand (never automatic). Each line shows chips for the messages it cites; clicking a
+    chip scrolls to and highlights that message in the thread. The api has already verified
+    every citation, and an unverifiable summary is discarded and shown as an error (any earlier
+    summary stays on screen and is labelled as the previous one). It notes when messages
+    arrived after the summary was written and when older messages were left out. The summary
+    lives only in component state -- the api doesn't store it, and it holds patient content,
+    so it is not put in browser storage either (a reload clears it).
+  - **Draft reply** (`components/draft-review.tsx`): "Draft a reply with AI" asks the api for a
+    draft. A pending draft is shown beside the patient message it answers with **Approve and
+    send**, **Edit, then send** (the edit must differ from the draft) and **Reject**; nothing
+    is sent until one of those is pressed. Only owners and clinicians can decide (delegates see
+    the draft and a note; the api enforces it with a 403). Decided drafts are listed under
+    "Earlier drafts" with what the AI wrote and, for edits, what was sent instead. Drafts load
+    separately from the rest of the page, so if that call fails the thread and check-ins still work.
+  Both need AWS credentials set on the api (Bedrock); without them they show the api's error.
 - `/check-in?token=` (patient, structured check-in) and `/messages?token=` (patient chat).
   Patients are link-only for now; patient sign-in comes before real patients.
 
