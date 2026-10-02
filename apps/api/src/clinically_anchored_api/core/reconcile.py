@@ -46,6 +46,7 @@ class Check:
     ref_type: str
     event_type: str
     when: str  # timestamp column that dates the action; null = action never happened
+    only: tuple[tuple[str, str], ...] = ()  # (column, value) pairs a row must also match
 
 
 CHECKS = [
@@ -56,6 +57,10 @@ CHECKS = [
     Check("messages", "message", "message.read", "read_at"),
     Check("consents", "consent", "consent.granted", "granted_at"),
     Check("consents", "consent", "consent.revoked", "revoked_at"),
+    Check("message_drafts", "draft", "draft.generated", "created_at"),
+    Check("message_drafts", "draft", "draft.approved", "decided_at", (("status", "approved"),)),
+    Check("message_drafts", "draft", "draft.edited", "decided_at", (("status", "edited"),)),
+    Check("message_drafts", "draft", "draft.rejected", "decided_at", (("status", "rejected"),)),
 ]
 
 
@@ -128,10 +133,10 @@ def reconcile(supabase, *, clinic_id: str | None = None, since: datetime | None 
     for check in CHECKS:
         if check.table not in rows_by_table:
 
-            # Ids and timestamps only: no message text, names or answers.
-            cols = ", ".join(
-                ["id", "clinic_id", *sorted({c.when for c in CHECKS if c.table == check.table})]
-            )
+            # Ids, timestamps and status only: no message text, names or answers.
+            same_table = [c for c in CHECKS if c.table == check.table]
+            wanted = {c.when for c in same_table} | {col for c in same_table for col, _ in c.only}
+            cols = ", ".join(["id", "clinic_id", *sorted(wanted)])
 
             def table_query(table=check.table, cols=cols):
                 q = supabase.table(table).select(cols)
@@ -143,7 +148,7 @@ def reconcile(supabase, *, clinic_id: str | None = None, since: datetime | None 
 
         examined = 0
         for row in rows_by_table[check.table]:
-            if row.get(check.when) is None:
+            if row.get(check.when) is None or any(row.get(c) != v for c, v in check.only):
                 continue
             examined += 1
             key = (row["clinic_id"], check.event_type, row["id"])

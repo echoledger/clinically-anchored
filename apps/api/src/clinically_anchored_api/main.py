@@ -6,6 +6,7 @@ from clinically_anchored_api.api import (
     check_ins,
     clinics,
     consents,
+    drafts,
     health,
     messages,
     procedures,
@@ -36,6 +37,7 @@ app.include_router(procedures.router)
 app.include_router(check_ins.router)
 app.include_router(messages.router)
 app.include_router(consents.router)
+app.include_router(drafts.router)
 app.include_router(queue.router)
 
 if settings.environment == "development":

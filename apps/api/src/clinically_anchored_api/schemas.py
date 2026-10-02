@@ -4,7 +4,7 @@ contract apps/web's generated OpenAPI client is built from."""
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Procedure(BaseModel):
@@ -166,3 +166,42 @@ class ConsentSummaryOut(BaseModel):
     patient_id: str
     active: list[str]
     records: list[ConsentOut]
+
+
+class DraftCreate(BaseModel):
+    # The patient message to answer; defaults to the patient's latest message.
+    message_id: str | None = None
+
+
+class DraftEdit(BaseModel):
+    # What the clinician actually wants sent, in place of the model's draft.
+    final_text: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("final_text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("final_text must not be blank")
+        return value
+
+
+class DraftOut(BaseModel):
+    id: str
+    clinic_id: str
+    patient_id: str
+    source_message_id: str
+    draft_text: str  # exactly what the model wrote; never changes
+    model_id: str
+    prompt_version: str
+    status: Literal["pending", "approved", "edited", "rejected"]
+    final_text: str | None  # what was sent; null until approved/edited
+    sent_message_id: str | None
+    created_by: str
+    created_at: str
+    decided_by: str | None  # the approving / rejecting clinician
+    decided_at: str | None
+
+
+class DraftDecisionOut(BaseModel):
+    draft: DraftOut
+    message: MessageOut | None  # the message that was sent; null when rejected

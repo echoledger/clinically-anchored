@@ -47,7 +47,9 @@ class _Q:
 
 class _Db:
     def __init__(self):
-        self.t = {n: [] for n in ("patients", "check_ins", "messages", "consents", "audit_log")}
+        self.t = {n: [] for n in (
+            "patients", "check_ins", "messages", "consents", "message_drafts", "audit_log",
+        )}
 
     def table(self, name):
         return _Q(self.t[name])
@@ -99,6 +101,37 @@ def test_finds_orphans_in_every_table(db):
         ("consents", "c1", "consent.granted"),
         ("consents", "c1", "consent.revoked"),
     }
+
+
+def test_drafts_are_checked_per_transition(db):
+    t = "2026-10-01T10:00:00Z"
+    db.t["message_drafts"] += [
+        {"id": "d-pending", "clinic_id": A, "created_at": t, "decided_at": None,
+         "status": "pending"},
+        {"id": "d-ok", "clinic_id": A, "created_at": t, "decided_at": t, "status": "approved"},
+        {"id": "d-edit", "clinic_id": A, "created_at": t, "decided_at": t, "status": "edited"},
+        {"id": "d-rej", "clinic_id": A, "created_at": t, "decided_at": t, "status": "rejected"},
+    ]
+    for ref in ("d-pending", "d-ok", "d-edit", "d-rej"):
+        db.audit(A, "draft.generated", ref)
+    db.audit(A, "draft.approved", "d-ok")
+    db.audit(A, "draft.approved", "d-edit")  # wrong event for an edited draft: doesn't count
+    report = rec.reconcile(db)
+    assert _gaps(report) == {
+        ("message_drafts", "d-edit", "draft.edited"),
+        ("message_drafts", "d-rej", "draft.rejected"),
+    }
+    assert report.checked["draft.generated"] == 4
+    assert report.checked["draft.approved"] == 1  # only approved drafts are examined for it
+    assert [(d.event_type, d.ref_id) for d in report.dangling] == [("draft.approved", "d-edit")]
+
+
+def test_unaudited_draft_generation_is_reported(db):
+    db.t["message_drafts"].append(
+        {"id": "d1", "clinic_id": A, "created_at": "2026-10-01T10:00:00Z", "decided_at": None,
+         "status": "pending"}
+    )
+    assert _gaps(rec.reconcile(db)) == {("message_drafts", "d1", "draft.generated")}
 
 
 def test_each_event_is_matched_independently(db):

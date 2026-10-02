@@ -36,6 +36,22 @@ def _require_patient_in_clinic(supabase, clinic_id: str, patient_id: str) -> Non
         raise HTTPException(status_code=404, detail="Patient not found.")
 
 
+def audit_message_sent(supabase, *, clinic_id: str, row: dict, actor: dict) -> None:
+    """Record `message.sent` for a stored message row. Raises AuditWriteError."""
+    record_event(
+        supabase,
+        clinic_id=clinic_id,
+        event_type="message.sent",
+        payload={
+            "message_id": row["id"],
+            "patient_id": row["patient_id"],
+            "sender": row["sender"],
+            "body": row["body"],
+        },
+        metadata={"ref_type": "message", "ref_id": row["id"], "actor": actor},
+    )
+
+
 def _insert_and_audit(
     supabase, *, clinic_id: str, patient_id: str, sender: str, text: str, actor: dict
 ) -> MessageOut:
@@ -52,18 +68,7 @@ def _insert_and_audit(
         raise HTTPException(status_code=500, detail="Message was not saved.")
     row = result.data[0]
     try:
-        record_event(
-            supabase,
-            clinic_id=clinic_id,
-            event_type="message.sent",
-            payload={
-                "message_id": row["id"],
-                "patient_id": patient_id,
-                "sender": sender,
-                "body": row["body"],
-            },
-            metadata={"ref_type": "message", "ref_id": row["id"], "actor": actor},
-        )
+        audit_message_sent(supabase, clinic_id=clinic_id, row=row, actor=actor)
     except AuditWriteError as exc:
         logger.error("message %s saved but audit write failed: %s", row["id"], exc)
         raise HTTPException(status_code=500, detail="Message saved but not audited.") from exc
