@@ -14,8 +14,9 @@ Postgres directly and the only thing that calls out to an LLM. Concretely, it ow
 - **The red-flag rule engine.** Fixed rules a clinician writes, not model judgement —
   nothing decides on its own that a patient is fine. A check-in or message that
   matches a rule gets pulled to the top of the clinician's queue.
-- **Rolling summary generation.** Rewritten each time something new arrives in a
-  thread, so it's never stale. Every generated line links back to the message it
+- **Thread summary generation.** On demand only: an explicit endpoint call, never a
+  background job and never triggered by a message arriving (so a summary can be stale;
+  it says when it was generated). Every generated line links back to the message it
   came from — this is a hard product requirement, not a nice-to-have (see "What you
   would see" in the patient-facing Overview doc: the clinician has to be able to
   check any claim in one tap).
@@ -109,10 +110,27 @@ Built (on `main`):
   is called and raises `AIDailyCapExceeded`; in-memory, per instance, UTC day, failed calls
   count. Prompt/reply text is never logged. Versioned prompt templates live in
   `clinically_anchored_api/templates/<name>_<version>.md` (`## System` + `## User`, `{{vars}}`),
-  loaded with `load_template(name, "v1")`; the two shipped (`draft_reply_v1`, `summary_v1`) are
+  loaded with `load_template(name, "v1")`; the shipped ones (`draft_reply_v1`, `summary_v1`, `summary_v2`) are
   **placeholder wording pending clinical review**. A wording change is a new version file.
   Inference location remains a product decision (see the hard constraints below): this wrapper
   assumes Bedrock in ca-central-1.
+- Thread summaries (`api/summaries.py`, `core/citations.py`): `POST
+  /clinics/{id}/patients/{pid}/summaries` -- on demand only, any clinic member, nothing automatic.
+  The model (template `summary_v2`) is shown the patient's last 50 messages as `[id] sender: text`
+  and must write one claim per line, each ending in the exact message id(s) in brackets. **Every
+  citation is verified before anything is returned:** it must parse as a message id and exist in
+  *this clinic's thread with this patient* (checked in the database, not just against the prompt).
+  An unverifiable summary -- uncited line, intro line, malformed or empty citation, bracket
+  mid-line, or an id that doesn't exist / belongs to another patient or clinic -- is discarded
+  whole (502; nothing shown, nothing recorded as generated); no citation is silently dropped or
+  repaired. A verified summary is returned (`lines[{text, citations}]`, `covers_messages`,
+  `truncated`) and audited as `summary.generated` (model id and prompt version in readable
+  metadata, text and citations in the hashed payload); if that audit write fails it is not shown
+  either. **Not stored** -- each call regenerates and spends a call from the daily cap; the audit
+  log holds only a hash, so what was shown can't be reproduced from the database. Persisting it
+  (a `summaries` table) is a follow-up if wanted. Same data-flow caveats as drafts: sends thread
+  text to Bedrock, inert without AWS credentials. `summary_v1` is kept but unused; `summary_v2`
+  pins the output format the parser expects. Placeholder wording, pending clinical review.
 - AI message drafts (`api/drafts.py`, migration 6, data-catalogue D8): `POST
   /clinics/{id}/patients/{pid}/drafts` asks the model for a reply to a patient message (default:
   the latest) and stores it `pending` -- it sends nothing. `GET .../drafts[?status=]` lists them.
@@ -133,7 +151,8 @@ Built (on `main`):
   rule still applies. Clinic protocol notes (D13) aren't modelled, so that template variable is
   a fixed placeholder, and the template wording is still pending clinical review.
 
-Not built: rolling summaries.
+Not built: auto-refreshing ("rolling") summaries -- by decision, summaries are on demand only --
+and storing summaries (see above).
 Tests and lint (`pytest`, `ruff`) run in CI.
 
 ## Hard constraints (not negotiable without a product conversation first)
@@ -160,7 +179,8 @@ Tests and lint (`pytest`, `ruff`) run in CI.
 2. ~~Red-flag rule engine~~ Placeholder done; needs Sarah's list (start with a hardcoded rule set; make it clinician-editable
    later, once there's a clinician using it).
 3. ~~Message send/receive endpoints~~ Done, both sides.
-4. Rolling summary generation, with per-line provenance links back to source messages.
+4. ~~Thread summary generation, with per-line provenance links back to source messages.~~ Done,
+   on demand, with every citation verified (not stored; no auto-refresh by decision).
 5. ~~Audit log writer~~ Done for check-ins, messages, patients, links, consent and AI drafts.
    Wire every new write through it (summaries) rather than bolting it on later, and add
    its (table, event) pair to `CHECKS` in `core/reconcile.py`.

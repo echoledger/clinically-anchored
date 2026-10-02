@@ -205,3 +205,22 @@ class DraftOut(BaseModel):
 class DraftDecisionOut(BaseModel):
     draft: DraftOut
     message: MessageOut | None  # the message that was sent; null when rejected
+
+
+class SummaryLineOut(BaseModel):
+    text: str
+    citations: list[str]  # ids of the messages this line comes from; all verified
+
+
+class SummaryOut(BaseModel):
+    """An AI summary of a patient's thread. Only ever returned with every citation
+    verified against the thread; not stored (the audit trail holds its hash)."""
+
+    summary_id: str  # ties this response to its `summary.generated` audit event
+    patient_id: str
+    generated_at: str
+    model_id: str
+    prompt_version: str
+    lines: list[SummaryLineOut]
+    covers_messages: int  # how many of the thread's messages the model was shown
+    truncated: bool  # true if older messages were left out
